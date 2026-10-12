@@ -4,8 +4,8 @@
 'use strict';
 
 const SECTIONS = [
-  ['Summary', [['overview', 'Overview', 'home']]],
-  ['Connect', [['meetings', '1:1 meetings', 'message'], ['actions', 'Action items', 'checkSq']]],
+  ['Summary', [['overview', 'Overview', 'home'], ['suggestions', 'Suggested actions', 'compass']]],
+  ['Connect', [['meetings', '1:1 meetings', 'message'], ['actions', 'Action items', 'checkSq'], ['leave', 'Leave & availability', 'calendar']]],
   ['Assess', [['competencies', 'Competencies', 'grid'], ['skills', 'Technical skills', 'layers'], ['kpis', 'KPIs', 'bars']]],
   ['Talent', [['talent', 'Talent & retention', 'award']]],
   ['Develop', [['goals', 'Goals', 'target'], ['idp', 'Development plan', 'trend'], ['strengths', 'Strengths & areas', 'flag'], ['feedback', 'Feedback log', 'heart'], ['pip', 'Improvement plan', 'clipboard']]],
@@ -21,14 +21,14 @@ function pgPerson(id, sec) {
   crumbs([['Reportees', '#/people'], [p.profile.name, personHref(p.id)], [SEC_LABEL[sec]]]);
   const r = roleOf(p), nb = nineOf(p), pip = activePip(p);
   const f = focusAreas(p), hi = f.filter(x => x.lvl === 3).length;
-  const count = { actions: p.oneOnOnes.reduce((n, o) => n + (o.actions || []).filter(a => !a.done).length, 0), overview: hi || null, pip: pip ? '●' : null };
+  const count = { actions: personActions(p).filter(a => !a.done).length, overview: hi || null, pip: pip ? '●' : null, suggestions: newSuggestions(p).length || null, leave: upcomingLeave(p, 30).length || null };
   const meta = [p.profile.designation, p.grade && `Grade ${p.grade}`, r?.name, p.profile.since && `Reports to you since ${fmt(p.profile.since)}`].filter(Boolean).map(esc).join(' · ');
-  const body = { overview: secOverview, meetings: secMeetings, actions: secActions, competencies: secCompetencies, skills: secSkills, kpis: secKpis, talent: secTalent,
+  const body = { overview: secOverview, suggestions: secSuggestions, leave: secLeave, meetings: secMeetings, actions: secActions, competencies: secCompetencies, skills: secSkills, kpis: secKpis, talent: secTalent,
     goals: secGoals, idp: secIdp, strengths: secStrengths, feedback: secFeedback, pip: secPip, profile: secProfile, documents: secDocuments, review: secReview }[sec](p);
   return `<div class="person-head"><div class="row" style="gap:14px;flex-wrap:nowrap">${avatar(p, 'lg')}<div><h1>${esc(p.profile.name)}</h1><div class="meta">${meta || 'No designation set'}</div>
       <div class="row mt-s">${p.archived ? '<span class="badge">Archived</span>' : ''}${nb ? `<span class="badge b-acc">${esc(nb.name)}</span>` : ''}${riskBadge(p.ninebox.risk)}${pip ? '<span class="badge b-warn">Improvement plan active</span>' : ''}</div></div></div>
       <div class="row"><button class="btn" onclick="editProfile('${p.id}')">${ic('edit', 15)}Edit profile</button><button class="btn primary" onclick="editOne('${p.id}')">${ic('message', 15)}Log 1:1</button></div></div>
-    <div class="ws"><nav class="subnav" aria-label="Sections">${SECTIONS.map(([g, items]) => `<div class="grp">${g}</div>${items.map(([k, l, icon]) => `<a class="${k === sec ? 'on' : ''}" href="${personHref(p.id, k)}">${ic(icon, 15)}${l}${count[k] ? `<span class="badge ${k === 'overview' ? 'b-bad' : k === 'pip' ? 'b-warn' : ''}">${count[k]}</span>` : ''}</a>`).join('')}`).join('')}</nav>
+    <div class="ws"><nav class="subnav" aria-label="Sections">${SECTIONS.map(([g, items]) => `<div class="grp">${g}</div>${items.map(([k, l, icon]) => `<a class="${k === sec ? 'on' : ''}" href="${personHref(p.id, k)}">${ic(icon, 15)}${l}${count[k] ? `<span class="badge ${k === 'overview' ? 'b-bad' : k === 'pip' || k === 'suggestions' ? 'b-warn' : ''}">${count[k]}</span>` : ''}</a>`).join('')}`).join('')}</nav>
       <select class="input subnav-select" onchange="go('${personHref(p.id, '')}'+this.value)">${SECTIONS.map(([g, items]) => `<optgroup label="${g}">${items.map(([k, l]) => `<option value="${k}" ${k === sec ? 'selected' : ''}>${l}</option>`).join('')}</optgroup>`).join('')}</select>
       <div style="min-width:0">${body}</div></div>`;
 }
@@ -37,10 +37,12 @@ function pgPerson(id, sec) {
 function secOverview(p) {
   const c = cycleOf(), l = lastOne(p), n = nextOne(p);
   const gs = goalScore(p, c.key), cg = p.goals.filter(g => goalCycle(g) === c.key && g.status !== 'Dropped').length;
-  const cs = compStats(p.comp[c.key]), openActs = p.oneOnOnes.flatMap(o => (o.actions || []).filter(a => !a.done));
+  const cs = compStats(p.comp[c.key]), openActs = personActions(p).filter(a => !a.done), ns = newSuggestions(p).sort((a, b) => b.sev - a.sev);
   const months = []; for (let i = 5; i >= 0; i--) months.push(addMonths(today().slice(0, 7) + '-01', -i).slice(0, 7));
   const mood = moraleByMonth(p, months);
-  return sectionHead('Overview', `Where to focus with ${esc(firstName(p.profile.name))}, based on everything recorded.`) +
+  return sectionHead('Overview', `Where to focus with ${esc(firstName(p.profile.name))}, based on everything recorded.`, `<button class="btn" onclick="prepareOne('${p.id}')">${ic('clipboard', 15)}Prepare next 1:1</button>`) +
+    (ns.length ? `<div class="mb">${card(`Suggested actions <span class="badge b-warn">${ns.length}</span>`, ns.slice(0, 3).map(x => `<div class="focus-item">${sevDot(x.sev)}<div class="grow"><span class="badge">${esc(KIND_LABEL[x.kind] || x.kind)}</span>${x.origin === 'ai' ? ' <span class="badge b-acc">AI</span>' : ''} ${esc(x.title)}${x.evidence ? `<div class="xs muted">“${esc(short(x.evidence, 120))}”</div>` : ''}</div></div>`).join(''),
+      { sub: 'From 1:1 notes and uploaded documents', actions: `<button class="btn sm primary" onclick="reviewSuggestions('${p.id}',newSuggestions(getP('${p.id}')))">Review ${ns.length > 3 ? 'all' : ''}</button>` })}</div>` : '') +
     `<div class="grid g2">${card('Where to focus', focusList(focusAreas(p), 99, p.id), { sub: 'Red = act now · amber = soon · grey = when you can' })}
     ${card(`At a glance · ${esc(c.short)}`, `<dl class="kv" style="grid-template-columns:160px minmax(0,1fr)">
       <dt>Last 1:1</dt><dd>${l ? `${fmt(l.date)} <span class="muted small">(${relDays(l.date)})</span>` : '—'}</dd>
@@ -57,13 +59,13 @@ function secOverview(p) {
 function secMeetings(p) {
   const c = cycleOf(), months = cycleMonths(c, false), cur = today().slice(0, 7);
   const ones = [...p.oneOnOnes].sort((a, b) => b.date.localeCompare(a.date));
-  return sectionHead('1:1 meetings', 'Monthly connects. Open a meeting to read the full notes.', `<button class="btn primary" onclick="editOne('${p.id}')">${ic('plus', 15)}Log 1:1</button>`) +
+  return sectionHead('1:1 meetings', 'Monthly connects with guided questions. Open a meeting to read the full notes.', `<button class="btn" onclick="prepareOne('${p.id}')">${ic('clipboard', 15)}Prepare next 1:1</button><button class="btn primary" onclick="editOne('${p.id}')">${ic('plus', 15)}Log 1:1</button>`) +
     card(`Monthly coverage · ${esc(c.short)}`, `<div class="months">${months.map(m => `<span class="${p.oneOnOnes.some(o => o.date.startsWith(m)) ? 'ok' : ''} ${m === cur ? 'now' : ''}">${fmtMonth(m)}</span>`).join('')}</div>`) +
     `<div class="card mt">${ones.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Mode</th><th>Morale</th><th>Summary</th><th>Coaching</th><th class="c">Actions</th></tr></thead><tbody>
       ${ones.map(o => { const a = o.actions || [], open = a.filter(x => !x.done).length, mor = +o.morale;
         return `<tr class="click" onclick="viewOne('${p.id}','${o.id}')"><td class="nowrap"><b>${fmt(o.date)}</b></td><td>${esc(o.mode || '—')}</td>
           <td>${mor ? `<span class="badge ${mor <= 2 ? 'b-bad' : mor >= 4 ? 'b-good' : ''}">${mor}/5</span>` : '<span class="muted">—</span>'}</td>
-          <td class="small" style="max-width:340px"><div class="ellipsis">${esc(o.updates || o.notes || o.grow?.goal || '—')}</div></td>
+          <td class="small" style="max-width:340px"><div class="ellipsis">${esc(o.updates || o.notes || o.qa?.project?.pj_done || o.grow?.goal || '—')}</div>${o.qa ? `<div class="xs muted">${Object.keys(o.qa).length} topics covered</div>` : ''}</td>
           <td>${o.grow && (o.grow.goal || o.grow.way) ? '<span class="badge b-acc">GROW</span>' : ''}${o.career ? ' <span class="badge">Career</span>' : ''}</td>
           <td class="c">${a.length ? `${open ? `<span class="badge b-warn">${open} open</span>` : '<span class="badge b-good">All done</span>'}` : '<span class="muted">—</span>'}</td></tr>`; }).join('')}</tbody></table></div>`
     : emptyState('message', 'No 1:1s logged yet', 'Log your monthly connect, including a GROW coaching conversation and action items.', `<button class="btn primary" onclick="editOne('${p.id}')">Log first 1:1</button>`)}</div>`;
@@ -74,49 +76,63 @@ function viewOne(pid, oid) {
   const g = o.grow || {};
   openDrawer({
     title: `1:1 · ${fmt(o.date)}`, sub: `${esc(p.profile.name)} · ${esc(o.mode || '')}${+o.morale ? ` · morale ${esc(MORALE[o.morale])}` : ''}`,
-    body: `${qa('Their updates & wins', o.updates)}${qa('Discussion', o.notes)}
+    body: `${qaHtml(o)}${qaHtml(o) && [o.updates, o.notes, o.concerns, o.support, o.career, o.private, g.goal, g.way].some(Boolean) ? '<div class="sec-label mt">Notes</div>' : ''}${qa('Their updates & wins', o.updates)}${qa('Discussion', o.notes)}
       ${g.goal || g.reality || g.options || g.way ? `<div class="sec-label mt">Coaching (GROW)</div>${qa('Goal', g.goal)}${qa('Reality', g.reality)}${qa('Options', g.options)}${qa('Way forward', g.way)}` : ''}
       ${qa('Concerns / blockers', o.concerns)}${qa('Support needed from you', o.support)}${qa('Career & growth', o.career)}${qa('Private notes', o.private)}
       ${(o.actions || []).length ? `<div class="sec-label mt">Action items</div>${o.actions.map(a => `<label class="check" style="margin:6px 0"><input type="checkbox" ${a.done ? 'checked' : ''} onchange="toggleAct('${pid}','${oid}','${a.id}',this.checked)"><span style="${a.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(a.text)}</span>
         <span class="badge">${a.owner === 'me' ? 'You' : esc(firstName(p.profile.name))}</span>${a.due ? `<span class="badge ${!a.done && a.due < today() ? 'b-bad' : ''}">${fmtShort(a.due)}</span>` : ''}${a.carried ? '<span class="badge">carried forward</span>' : ''}</label>`).join('')}` : ''}
       ${o.next ? `<p class="small muted mt">Next 1:1 planned for ${fmt(o.next)}</p>` : ''}`,
-    foot: `<button class="btn danger" onclick="delOne('${pid}','${oid}')">${ic('trash', 15)}Delete</button><span class="grow"></span><button class="btn primary" onclick="closeDrawer();editOne('${pid}','${oid}')">${ic('edit', 15)}Edit</button>`,
+    foot: `<button class="btn danger" onclick="delOne('${pid}','${oid}')">${ic('trash', 15)}Delete</button><span class="grow"></span><button class="btn" onclick="closeDrawer();analyse1on1('${pid}','${oid}',{manual:true})">${ic('compass', 15)}Suggest actions</button><button class="btn primary" onclick="closeDrawer();editOne('${pid}','${oid}')">${ic('edit', 15)}Edit</button>`,
   });
 }
 const actRow = (a = {}) => `<div class="act-row"><input class="input" data-a="text" placeholder="What needs to happen" value="${esc(a.text || '')}"><select class="input" data-a="owner">${opts([['them', 'Reportee'], ['me', 'Me']], a.owner || 'them')}</select>
   ${dateInput('data-a="due"', a.due, 'Due date')}<button type="button" class="btn ghost icon" onclick="this.parentNode.remove()" aria-label="Remove">${ic('x')}</button>
   <input type="hidden" data-a="id" value="${esc(a.id || '')}"><input type="hidden" data-a="done" value="${a.done ? '1' : ''}"><input type="hidden" data-a="doneOn" value="${esc(a.doneOn || '')}"></div>`;
+const leaveRow = (l = {}) => `<div class="act-row leave-row" style="grid-template-columns:180px 180px minmax(0,1fr) 34px">${dateInput('data-l="from"', l.from, 'From')}${dateInput('data-l="to"', l.to, 'To')}
+  <select class="input" data-l="type">${opts(LEAVE_TYPES, l.type || 'Planned leave')}</select><button type="button" class="btn ghost icon" onclick="this.parentNode.remove()" aria-label="Remove">${ic('x')}</button></div>`;
 function editOne(pid, oid) {
-  const p = getP(pid), o = oid ? p.oneOnOnes.find(x => x.id === oid) : { date: today(), mode: 'Video call', actions: [] };
+  const p = getP(pid), o = oid ? p.oneOnOnes.find(x => x.id === oid) : { id: '', date: today(), mode: 'Video call', actions: [], qa: {} };
   const prev = !oid && lastOne(p), carry = prev ? (prev.actions || []).filter(a => !a.done) : [], g = o.grow || {};
+  const lv = upcomingLeave(p, 120);
   openModal({
     title: oid ? 'Edit 1:1' : 'Log 1:1', sub: esc(p.profile.name), size: 'xwide', saveText: oid ? 'Save changes' : 'Save 1:1',
+    footLeft: `<div class="row"><span class="small muted">Date</span><div style="width:170px">${dateInput('name="date"', o.date, 'Date', 'past')}</div><select class="input" name="mode" style="width:auto;height:34px">${opts(MODES, o.mode)}</select></div>`,
     body: mtabs([
-      ['Updates', `<div class="fgrid">${dfld('Date', 'date', o.date, { quick: 'past' })}${sel('Mode', 'mode', MODES, o.mode)}
-        ${area('Their updates & wins', 'updates', o.updates, { ph: 'Progress on goals and projects, what went well' })}${area('Discussion notes', 'notes', o.notes, { rows: 4 })}</div>`],
+      ['Guided questions', guidedPane(p, o)],
+      ['Notes', `<div class="fgrid">${area('Their updates & wins', 'updates', o.updates, { ph: 'Progress on goals and projects, what went well' })}${area('Discussion notes', 'notes', o.notes, { rows: 4 })}
+        ${area('Concerns / blockers', 'concerns', o.concerns, { cls: '' })}${area('Support needed from you', 'support', o.support, { cls: '' })}${area('Career & growth discussion', 'career', o.career, { rows: 2 })}
+        ${area('Private notes (only you see these)', 'private', o.private, { rows: 2 })}</div>`],
       ['Coaching (GROW)', `${callout('info', '<b>GROW</b> keeps a coaching conversation focused: agree the <b>G</b>oal, explore the current <b>R</b>eality, generate <b>O</b>ptions, then commit to a <b>W</b>ay forward. Ask more than you tell.')}
         <div class="fgrid">${area('Goal — what do they want to achieve?', 'g_goal', g.goal, { rows: 2 })}${area('Reality — where are things now? What’s getting in the way?', 'g_reality', g.reality, { rows: 2 })}
         ${area('Options — what could they do?', 'g_options', g.options, { rows: 2 })}${area('Way forward — what will they do, and by when?', 'g_way', g.way, { rows: 2 })}</div>
         <div><button type="button" class="btn sm" onclick="growToAction()">${ic('plus', 14)}Add “way forward” as an action item</button></div>`],
-      ['Concerns & career', `<div class="fgrid">${area('Concerns / blockers', 'concerns', o.concerns)}${area('Support needed from you', 'support', o.support)}${area('Career & growth discussion', 'career', o.career)}</div>`],
+      ['Leave', `${lv.length ? `<div><div class="sec-label">Already recorded</div>${lv.map(l => `<div class="list-row small">${ic('calendar', 14, 'style="color:var(--muted)"')}<span class="grow">${fmt(l.from)}${l.to && l.to !== l.from ? ' – ' + fmt(l.to) : ''} · ${esc(l.type)} · ${workDays(l.from, l.to || l.from)} working days</span><span class="badge">${esc(l.status)}</span></div>`).join('')}</div>` : ''}
+        <div class="spread"><span class="sec-label" style="margin:0">Add planned leave</span><button type="button" class="btn sm" onclick="$('#leaves-new').insertAdjacentHTML('beforeend',leaveRow())">${ic('plus', 14)}Add leave</button></div>
+        <div id="leaves-new" class="grid" style="gap:8px"></div><div class="xs muted">Dates mentioned in the Leave & availability answers are also picked up automatically as suggestions.</div>`],
       ['Actions & wrap-up', `<div><div class="spread"><span class="sec-label" style="margin:0">Action items</span><button type="button" class="btn sm" onclick="$('#acts').insertAdjacentHTML('beforeend',actRow())">${ic('plus', 14)}Add action</button></div>
         ${carry.length ? `<div class="mt-s">${callout('info', `${plural(carry.length, 'open action')} from the last 1:1 ${carry.length === 1 ? 'is' : 'are'} carried forward below. Remove any that no longer apply.`)}</div>` : ''}
         <div id="acts" class="grid mt-s" style="gap:8px">${(oid ? o.actions || [] : carry.map(a => ({ ...a, id: '' }))).map(actRow).join('') || actRow()}</div></div>
-        <div class="fgrid">${sel('Their morale / engagement', 'morale', MORALE.map((m, i) => [i || '', m]), o.morale)}${dfld('Next 1:1', 'next', o.next || (oid ? '' : addMonths(today(), 1)))}
-        ${area('Private notes (observations, things to watch)', 'private', o.private, { rows: 2 })}</div>`],
+        <div class="fgrid">${sel('Their morale / engagement', 'morale', MORALE.map((m, i) => [i || '', m]), o.morale, { hint: 'Left blank, it uses their wellbeing score from the guided questions.' })}${dfld('Next 1:1', 'next', o.next || (oid ? '' : addMonths(today(), 1)))}</div>`],
     ]),
     onSave: (d, f) => {
+      d.date = $('.modal-foot [name=date]')?.value || ''; d.mode = $('.modal-foot [name=mode]')?.value || d.mode;
       if (!d.date) { toast('Pick the meeting date', 'err'); return false; }
-      const actions = $$('.act-row', f).map(r => { const v = k => r.querySelector(`[data-a=${k}]`).value.trim(); return { id: v('id') || uid(), text: v('text'), owner: v('owner'), due: v('due'), done: !!v('done'), doneOn: v('doneOn') }; }).filter(a => a.text);
+      const qa = collectQa(d);
+      const actions = $$('#acts .act-row', f).map(r => { const v = k => r.querySelector(`[data-a=${k}]`).value.trim(); return { id: v('id') || uid(), text: v('text'), owner: v('owner'), due: v('due'), done: !!v('done'), doneOn: v('doneOn') }; }).filter(a => a.text);
+      const newLeaves = $$('.leave-row', f).map(r => { const v = k => r.querySelector(`[data-l=${k}]`).value; return { from: v('from'), to: v('to') || v('from'), type: v('type') }; }).filter(l => l.from);
+      if (newLeaves.some(l => l.to < l.from)) { toast('A leave end date is before its start date', 'err'); return false; }
       const grow = { goal: d.g_goal, reality: d.g_reality, options: d.g_options, way: d.g_way };
       ['g_goal', 'g_reality', 'g_options', 'g_way'].forEach(k => delete d[k]);
-      const rec = { ...o, ...d, grow, actions, id: o.id || uid() };
+      if (!d.morale && +qa.wellbeing?.wb_score) d.morale = qa.wellbeing.wb_score;
+      const rec = { ...o, ...d, qa, grow, actions, id: o.id || uid() };
       if (oid) p.oneOnOnes = p.oneOnOnes.map(x => x.id === oid ? rec : x);
       else {
         p.oneOnOnes.push(rec);
         if (prev) (prev.actions || []).forEach(a => { if (!a.done && actions.some(n => n.text === a.text)) { a.done = true; a.carried = true; a.doneOn = today(); } });
       }
+      newLeaves.forEach(l => p.leaves.push({ id: uid(), ...l, status: 'Planned', notes: `Added in 1:1 on ${fmt(rec.date)}`, created: today() }));
       save(); toast('1:1 saved');
+      setTimeout(() => analyse1on1(pid, rec.id), 60);
     },
   });
 }
@@ -137,15 +153,60 @@ function delOne(pid, oid) {
 /* ---------------- Action items ---------------- */
 function secActions(p) {
   const f = V.pActF || 'open', t = today();
-  const rows = p.oneOnOnes.flatMap(o => (o.actions || []).map(a => ({ ...a, o }))).filter(a => f === 'all' || !a.done).sort((a, b) => (a.done - b.done) || (a.due || '9').localeCompare(b.due || '9'));
-  return sectionHead('Action items', 'Everything agreed in 1:1s with ' + esc(firstName(p.profile.name)) + '. Tick items off as they’re done.') +
+  const rows = personActions(p).filter(a => f === 'all' || !a.done).sort((a, b) => (a.done - b.done) || (a.due || '9').localeCompare(b.due || '9'));
+  return sectionHead('Action items', 'Everything agreed in 1:1s with ' + esc(firstName(p.profile.name)) + ', plus actions accepted from suggestions.', `<button class="btn" onclick="editTask('${p.id}')">${ic('plus', 15)}Add action</button>`) +
     `<div class="card"><div class="spread" style="padding:12px 16px;border-bottom:1px solid var(--line)">${seg('pActF', [['open', 'Open'], ['all', 'All']], f)}</div>
-    ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="width:40px"></th><th>Action</th><th>Owner</th><th>Due</th><th>Agreed in</th></tr></thead><tbody>
-    ${rows.map(a => `<tr><td><input type="checkbox" ${a.done ? 'checked' : ''} onchange="toggleAct('${p.id}','${a.o.id}','${a.id}',this.checked)" aria-label="Done"></td><td style="${a.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(a.text)}</td>
+    ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="width:40px"></th><th>Action</th><th>Owner</th><th>Due</th><th>From</th></tr></thead><tbody>
+    ${rows.map(a => `<tr><td><input type="checkbox" ${a.done ? 'checked' : ''} onchange="${a.o ? `toggleAct('${p.id}','${a.o.id}','${a.id}',this.checked)` : `toggleTask('${p.id}','${a.id}',this.checked)`}" aria-label="Done"></td><td style="${a.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(a.text)}</td>
       <td>${a.owner === 'me' ? '<span class="badge b-acc">You</span>' : esc(firstName(p.profile.name))}</td><td>${a.due ? `<span class="${!a.done && a.due < t ? 'badge b-bad' : ''}">${fmt(a.due)}</span>` : '—'}</td>
-      <td><a href="#" onclick="viewOne('${p.id}','${a.o.id}');return false">${fmt(a.o.date)}</a></td></tr>`).join('')}</tbody></table></div>`
-    : emptyState('checkSq', f === 'open' ? 'No open action items' : 'No action items yet', 'Add actions while logging a 1:1.')}</div>`;
+      <td class="small">${a.o ? `<a href="#" onclick="viewOne('${p.id}','${a.o.id}');return false">1:1 ${fmt(a.o.date)}</a>` : esc(a.source || '—')}</td></tr>`).join('')}</tbody></table></div>`
+    : emptyState('checkSq', f === 'open' ? 'No open action items' : 'No action items yet', 'Add actions while logging a 1:1, or accept suggested actions.')}</div>`;
 }
+function toggleTask(pid, tid, v) { const a = getP(pid).tasks.find(x => x.id === tid); if (!a) return; a.done = v; a.doneOn = v ? today() : ''; save(); render(); }
+function editTask(pid) {
+  openModal({ title: 'Add action', sub: esc(getP(pid).profile.name), body: `<div class="fgrid">${fld('Action', 'text', '', { req: true, cls: 'full' })}${sel('Owner', 'owner', [['me', 'Me'], ['them', 'Reportee']], 'me')}${dfld('Due date', 'due', addDays(today(), 7))}</div>`,
+    onSave: d => { if (!d.text) return false; getP(pid).tasks.push({ id: uid(), text: d.text, owner: d.owner, due: d.due, done: false, created: today(), source: 'Added manually' }); save(); } });
+}
+
+/* ---------------- Suggested actions (inbox) ---------------- */
+function secSuggestions(p) {
+  const tab = V.sugTab || 'new', all = [...p.suggestions].sort((a, b) => (b.created || '').localeCompare(a.created || '') || b.sev - a.sev);
+  const rows = all.filter(s => s.state === tab);
+  const head = sectionHead('Suggested actions', 'What Team Desk noticed in 1:1 notes and uploaded documents. Review each one — nothing is added until you accept it.',
+    `<button class="btn primary" ${rows.length && tab === 'new' ? '' : 'disabled'} onclick="reviewSuggestions('${p.id}',newSuggestions(getP('${p.id}')))">Review ${tab === 'new' ? rows.length : ''}</button>`) +
+    `<div class="mb">${seg('sugTab', [['new', `To review (${all.filter(s => s.state === 'new').length})`], ['accepted', `Accepted (${all.filter(s => s.state === 'accepted').length})`], ['dismissed', `Dismissed (${all.filter(s => s.state === 'dismissed').length})`]], tab)}</div>`;
+  if (!rows.length) return head + card('', emptyState('compass', tab === 'new' ? 'Nothing to review' : 'Nothing here yet', tab === 'new' ? 'Suggestions appear after you log a 1:1 or upload a document. You can also open any 1:1 or document and choose “Suggest actions”.' : ''));
+  return head + `<div class="card"><div class="card-body flush tbl-wrap"><table class="tbl"><thead><tr><th style="width:24px"></th><th>Suggestion</th><th>Place as</th><th>Source</th>${tab === 'new' ? '<th></th>' : ''}</tr></thead><tbody>
+    ${rows.map(s => `<tr><td>${sevDot(s.sev)}</td><td><div class="row" style="gap:6px"><span class="badge">${esc(KIND_LABEL[s.kind] || s.kind)}</span>${s.origin === 'ai' ? '<span class="badge b-acc">AI</span>' : ''}<b>${esc(s.title)}</b></div>${s.evidence ? `<div class="sub">“${esc(short(s.evidence, 160))}”</div>` : ''}</td>
+      <td class="small">${esc(DEST_OPTS.find(d => d[0] === s.dest)?.[1] || s.dest)}</td><td class="small muted">${esc(s.source?.label || '')}<br>${fmt(s.created)}</td>
+      ${tab === 'new' ? `<td class="nowrap"><button class="btn sm" onclick="reviewSuggestions('${p.id}',[getP('${p.id}').suggestions.find(x=>x.id==='${s.id}')])">Review</button><button class="btn sm ghost" onclick="dismissSug('${p.id}','${s.id}')">Dismiss</button></td>` : ''}</tr>`).join('')}</tbody></table></div></div>`;
+}
+function dismissSug(pid, sid) { const s = getP(pid).suggestions.find(x => x.id === sid); s.state = 'dismissed'; s.dismissedOn = today(); save(); render(); }
+
+/* ---------------- Leave & availability ---------------- */
+function secLeave(p) {
+  const t = today(), f = V.leaveF || 'upcoming';
+  const rows = [...p.leaves].filter(l => f === 'all' || ((l.to || l.from) >= t && l.status !== 'Cancelled')).sort((a, b) => (f === 'all' ? b.from.localeCompare(a.from) : a.from.localeCompare(b.from)));
+  const yr = String(new Date().getFullYear()), taken = p.leaves.filter(l => l.status !== 'Cancelled' && l.from.startsWith(yr)).reduce((n, l) => n + workDays(l.from, l.to || l.from), 0);
+  const others = S.reportees.filter(o => o.id !== p.id && !o.archived);
+  const overlap = l => others.some(o => o.leaves.some(x => x.status !== 'Cancelled' && x.from <= (l.to || l.from) && (x.to || x.from) >= l.from));
+  const clashes = l => p.goals.filter(g => !['Done', 'Dropped'].includes(g.status) && g.due && g.due >= l.from && g.due <= (l.to || l.from));
+  return sectionHead('Leave & availability', `Planned and past leave for ${esc(firstName(p.profile.name))} — so you can plan cover and spot clashes with deadlines.`, `<button class="btn primary" onclick="editLeave('${p.id}')">${ic('plus', 15)}Add leave</button>`) +
+    `<div class="card"><div class="card-head">${seg('leaveF', [['upcoming', 'Upcoming'], ['all', 'All']], f)}<span class="small muted">${taken} working days recorded in ${yr}</span></div>
+    ${rows.length ? `<div class="card-body flush tbl-wrap"><table class="tbl"><thead><tr><th>Dates</th><th class="c">Working days</th><th>Type</th><th>Status</th><th>Checks</th></tr></thead><tbody>
+    ${rows.map(l => { const c = clashes(l); return `<tr class="click" onclick="editLeave('${p.id}','${l.id}')"><td class="nowrap"><b>${fmt(l.from)}</b>${l.to && l.to !== l.from ? ` – ${fmt(l.to)}` : ''}<div class="sub">${relDays(l.from)}</div></td><td class="c">${workDays(l.from, l.to || l.from)}</td>
+      <td>${esc(l.type)}</td><td>${statusBadge(l.status)}</td><td>${c.length ? `<span class="badge b-warn">Goal due: ${esc(short(c[0].title, 30))}</span> ` : ''}${l.status !== 'Cancelled' && overlap(l) ? '<span class="badge b-warn">Overlaps team leave</span>' : ''}${!c.length && !(l.status !== 'Cancelled' && overlap(l)) ? '<span class="muted small">—</span>' : ''}</td></tr>`; }).join('')}</tbody></table></div>`
+    : `<div class="card-body">${emptyState('calendar', f === 'upcoming' ? 'No upcoming leave' : 'No leave recorded', 'Ask about planned leave in each 1:1 — the guided questions include it.')}</div>`}
+    <div class="card-foot" style="justify-content:flex-start"><span class="xs muted">“Overlaps team leave” doesn’t name anyone here — see Upcoming › Team leave for the team view.</span></div></div>`;
+}
+function editLeave(pid, lid) {
+  const p = getP(pid), l = lid ? p.leaves.find(x => x.id === lid) : { from: '', to: '', type: 'Planned leave', status: 'Planned' };
+  openModal({ title: lid ? 'Edit leave' : 'Add leave', sub: esc(p.profile.name), footLeft: lid ? `<button type="button" class="btn danger" onclick="delLeave('${pid}','${lid}')">Delete</button>` : '',
+    body: `<div class="fgrid">${dfld('From', 'from', l.from, { req: true })}${dfld('To', 'to', l.to, { hint: 'Leave blank for a single day' })}${sel('Type', 'type', LEAVE_TYPES, l.type)}${sel('Status', 'status', LEAVE_STATUS, l.status)}${area('Notes', 'notes', l.notes, { rows: 2 })}</div>`,
+    onSave: d => { if (!d.from) { toast('Pick the start date', 'err'); return false; } d.to = d.to || d.from; if (d.to < d.from) { toast('End date is before start date', 'err'); return false; }
+      if (lid) Object.assign(l, d); else p.leaves.push({ id: uid(), ...d, created: today() }); save(); } });
+}
+function delLeave(pid, lid) { const p = getP(pid); p.leaves = p.leaves.filter(x => x.id !== lid); save(); closeModal(); render(); }
 
 /* ---------------- Competencies ---------------- */
 function secCompetencies(p) {
@@ -434,7 +495,7 @@ function secDocuments(p) {
 function viewDoc(pid, did) {
   const p = getP(pid), d = p.docs.find(x => x.id === did);
   openDrawer({ title: d.name, sub: `${esc(d.docType)} · ${fmt(d.date)}`, body: `<div class="pre small">${esc(d.text || 'No text extracted.')}</div>`,
-    foot: `${d.docType !== 'Competency matrix' && !/competency/i.test(d.docType) ? `<button class="btn" onclick="closeDrawer();placementDialog(getP('${pid}'),getP('${pid}').docs.find(x=>x.id==='${did}')).then(render)">Analyse again</button>` : ''}${d.fileId ? `<button class="btn primary" onclick="Files.download('${pid}','${d.fileId}',${esc(JSON.stringify(d.name))})">${ic('download', 15)}Download original</button>` : ''}` });
+    foot: `${d.docType !== 'Competency matrix' && !/competency/i.test(d.docType) ? `<button class="btn" onclick="closeDrawer();placementDialog(getP('${pid}'),getP('${pid}').docs.find(x=>x.id==='${did}')).then(render)">Place insights</button><button class="btn" onclick="closeDrawer();analyseDocument('${pid}','${did}',{manual:true})">${ic('compass', 15)}Suggest actions</button>` : ''}${d.fileId ? `<button class="btn primary" onclick="Files.download('${pid}','${d.fileId}',${esc(JSON.stringify(d.name))})">${ic('download', 15)}Download original</button>` : ''}` });
 }
 function delDoc(pid, did) {
   confirmBox({ title: 'Delete document?', msg: 'The encrypted file is removed. Points already placed stay where they are.',

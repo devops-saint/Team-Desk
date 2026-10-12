@@ -88,6 +88,7 @@ async function uploadDocs(pid, files, forced = 'auto') {
     try { await Files.put(pid, doc.id, file); doc.fileId = doc.id; } catch (e) { toast('Original file not stored: ' + e.message, 'err'); }
     p.docs.push(doc); save();
     await placementDialog(p, doc, others);
+    await analyseDocument(pid, doc.id);
   }
   render();
 }

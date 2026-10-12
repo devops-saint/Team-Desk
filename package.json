@@ -1,6 +1,6 @@
 {
   "name": "team-desk",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Private, encrypted manager workspace for managing reportees — runs locally.",
   "private": true,
   "license": "UNLICENSED",

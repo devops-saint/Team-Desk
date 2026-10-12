@@ -22,7 +22,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const VERSION = '3.0.0';
+const VERSION = '3.1.0';
 const ROOT = path.resolve(__dirname, '..');
 const APP_DIR = path.join(ROOT, 'app');
 const args = process.argv.slice(2);
@@ -364,6 +364,46 @@ route('POST', '/api/folder/open', async ({ body }) => {
   key = null; config.dataDir = dir; saveConfig(); snapshotDay = null;
   return { dataDir: dir };
 });
+
+/* ---------- local AI (Ollama) — the server talks to it, the browser never does ---------- */
+const AI_DEFAULT_URL = 'http://127.0.0.1:11434';
+const aiCfg = () => ({ enabled: false, url: AI_DEFAULT_URL, model: '', ...(config.ai || {}) });
+function loopbackUrl(u) {
+  let x; try { x = new URL(String(u)); } catch { fail(400, 'Invalid AI address'); }
+  if (!['http:', 'https:'].includes(x.protocol) || !['127.0.0.1', 'localhost', '[::1]', '::1'].includes(x.hostname))
+    fail(400, 'For privacy, the AI address must be on this computer (localhost / 127.0.0.1).');
+  return x.origin;
+}
+async function ollama(pathname, body, timeoutMs) {
+  const r = await fetch(aiCfg().url + pathname, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(timeoutMs) });
+  if (!r.ok) { let m = `${r.status}`; try { m = (await r.json()).error || m; } catch {} throw new HttpError(502, `Local AI error: ${m}`); }
+  return r.json();
+}
+route('GET', '/api/ai/status', async () => {
+  const c = aiCfg();
+  try { const t = await ollama('/api/tags', null, 2500); return { ...c, available: true, models: (t.models || []).map(m => ({ name: m.name, size: m.size, family: m.details?.family || '', params: m.details?.parameter_size || '' })) }; }
+  catch (e) { return { ...c, available: false, models: [], error: e.name === 'TimeoutError' ? 'Ollama did not respond' : 'Ollama is not running on this computer' }; }
+}, { unlocked: true });
+route('PUT', '/api/ai/config', ({ body }) => {
+  const c = aiCfg();
+  if (body.url !== undefined) c.url = loopbackUrl(body.url || AI_DEFAULT_URL);
+  if (body.model !== undefined) c.model = String(body.model).slice(0, 200);
+  if (body.enabled !== undefined) c.enabled = !!body.enabled;
+  config.ai = c; saveConfig(); return c;
+}, { unlocked: true });
+route('POST', '/api/ai/chat', async ({ body }) => {
+  const c = aiCfg();
+  if (!c.enabled || !c.model) fail(409, 'Local AI is turned off. Turn it on in Settings › AI assistant.');
+  const sys = String(body.system || '').slice(0, 8000), prompt = String(body.prompt || '').slice(0, 24000);
+  const t0 = Date.now();
+  let out;
+  try {
+    out = await ollama('/api/chat', { model: c.model, stream: false, format: 'json', keep_alive: '10m', options: { temperature: 0.2, num_ctx: 8192 },
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: prompt }] }, 240000);
+  } catch (e) { if (e.status) throw e; fail(502, e.name === 'TimeoutError' ? 'The local AI took too long to answer. Try a smaller model.' : 'Could not reach Ollama. Is it running?'); }
+  return { content: out.message?.content || '', model: c.model, ms: Date.now() - t0 };
+}, { unlocked: true, limit: 256 * 1024 });
 
 route('POST', '/api/shutdown', ({ res }) => {
   res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}');

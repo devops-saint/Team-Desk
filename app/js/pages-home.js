@@ -12,7 +12,7 @@ function pgDashboard() {
   const head = pageHead(who, `${esc(c.label)} · ${plural(Math.max(0, daysBetween(t, c.end)), 'day')} left in this review cycle`);
   if (!ps.length) return head + `<div class="card">${emptyState('users', 'Add your first reportee', 'Team Desk keeps one private, encrypted record per reportee — 1:1s, competencies, goals, development and reviews.', `<div class="row" style="justify-content:center"><button class="btn primary" onclick="editProfile()">${ic('plus', 15)}Add reportee</button><a class="btn" href="#/config/framework">Review competency framework</a></div>`)}</div>`;
   const done = ps.filter(p => p.oneOnOnes.some(o => o.date.startsWith(month))).length;
-  const acts = ps.flatMap(p => p.oneOnOnes.flatMap(o => (o.actions || []).filter(a => !a.done)));
+  const acts = ps.flatMap(p => personActions(p).filter(a => !a.done));
   const overdue = acts.filter(a => a.due && a.due < t).length;
   const assessed = ps.filter(p => hasMgrRatings(p.comp[c.key])).length;
   const lm = leadershipMetrics().filter(m => m.status !== 'na'), habit = avg(lm.map(m => clamp(m.value, 0, 100)));
@@ -29,29 +29,39 @@ function pgDashboard() {
       ${card('Needs your attention', attention.length ? attention.map(x => `<div class="focus-item">${sevDot(x.lvl)}<div class="grow"><a href="${personHref(x.p.id)}"><b>${esc(x.p.profile.name)}</b></a> <span class="badge">${esc(x.area)}</span><div class="small">${esc(x.text)}</div></div><a class="btn sm" href="${personHref(x.p.id, x.sec || 'overview')}">Open</a></div>`).join('')
         : `<div class="muted">${ic('check', 14)} No high-priority items across your team.</div>`, { sub: 'Highest-priority items across your team', actions: `<a class="btn sm ghost" href="#/people">All reportees</a>` })}
       ${card(`1:1s this month`, ps.map(p => { const l = lastOne(p), ok = l && l.date.startsWith(month);
-        return `<div class="list-row" style="align-items:center">${avatar(p, 'sm')}<div class="grow"><a href="${personHref(p.id, 'meetings')}">${esc(p.profile.name)}</a><div class="xs muted">${l ? `Last: ${fmt(l.date)}` : 'No 1:1 yet'}</div></div>${ok ? '<span class="badge b-good">Done</span>' : `<button class="btn sm" onclick="editOne('${p.id}')">Log 1:1</button>`}</div>`; }).join(''), { sub: fmtMonth(month) })}
+        return `<div class="list-row" style="align-items:center">${avatar(p, 'sm')}<div class="grow"><a href="${personHref(p.id, 'meetings')}">${esc(p.profile.name)}</a><div class="xs muted">${l ? `Last: ${fmt(l.date)}` : 'No 1:1 yet'}</div></div>${ok ? '<span class="badge b-good">Done</span>' : `<button class="btn sm ghost" onclick="prepareOne('${p.id}')">Prepare</button><button class="btn sm" onclick="editOne('${p.id}')">Log 1:1</button>`}</div>`; }).join(''), { sub: fmtMonth(month) })}
     </div>`;
 }
 
 /* ---------- Upcoming & actions ---------- */
 function allActions() {
-  return active().flatMap(p => p.oneOnOnes.flatMap(o => (o.actions || []).map(a => ({ ...a, p, o }))));
+  return active().flatMap(p => personActions(p).map(a => ({ ...a, p })));
 }
 function pgUpcoming() {
   crumbs([['Upcoming & actions']]);
   const tab = V.upTab || 'agenda', t = today();
   const head = pageHead('Upcoming & actions', 'What’s coming up in the next 30 days, and every action item agreed in 1:1s.');
-  const tabs = `<div class="tabs">${[['agenda', 'Next 30 days'], ['actions', 'Action items', allActions().filter(a => !a.done).length]].map(([k, l, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="V.upTab='${k}';render()">${l}${n != null ? `<span class="count">${n}</span>` : ''}</button>`).join('')}</div>`;
+  const tabs = `<div class="tabs">${[['agenda', 'Next 30 days'], ['actions', 'Action items', allActions().filter(a => !a.done).length], ['leave', 'Team leave', active().reduce((n, p) => n + upcomingLeave(p, 90).length, 0)]].map(([k, l, n]) => `<button class="tab ${tab === k ? 'on' : ''}" onclick="V.upTab='${k}';render()">${l}${n != null ? `<span class="count">${n}</span>` : ''}</button>`).join('')}</div>`;
   if (tab === 'actions') {
     const f = V.actFilter || 'open';
     const rows = allActions().filter(a => f === 'all' ? true : f === 'overdue' ? !a.done && a.due && a.due < t : !a.done).sort((a, b) => (a.done - b.done) || (a.due || '9').localeCompare(b.due || '9'));
     return head + tabs + card('', `<div class="spread" style="padding:12px 16px;border-bottom:1px solid var(--line)">${seg('actFilter', [['open', 'Open'], ['overdue', 'Overdue'], ['all', 'All']], f)}<span class="small muted">${plural(rows.length, 'item')}</span></div>
       ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="width:40px"></th><th>Action</th><th>Reportee</th><th>Owner</th><th>Due</th><th>From 1:1</th></tr></thead><tbody>
-      ${rows.map(a => `<tr><td><input type="checkbox" ${a.done ? 'checked' : ''} onchange="toggleAct('${a.p.id}','${a.o.id}','${a.id}',this.checked)" aria-label="Done"></td>
+      ${rows.map(a => `<tr><td><input type="checkbox" ${a.done ? 'checked' : ''} onchange="${a.o ? `toggleAct('${a.p.id}','${a.o.id}','${a.id}',this.checked)` : `toggleTask('${a.p.id}','${a.id}',this.checked)`}" aria-label="Done"></td>
         <td style="${a.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(a.text)}</td><td><a href="${personHref(a.p.id, 'actions')}">${esc(a.p.profile.name)}</a></td>
         <td>${a.owner === 'me' ? '<span class="badge b-acc">You</span>' : esc(firstName(a.p.profile.name))}</td>
-        <td>${a.due ? `<span class="${!a.done && a.due < t ? 'badge b-bad' : ''}">${fmt(a.due)}</span>` : '<span class="muted">—</span>'}</td><td class="small muted">${fmt(a.o.date)}</td></tr>`).join('')}</tbody></table></div>`
+        <td>${a.due ? `<span class="${!a.done && a.due < t ? 'badge b-bad' : ''}">${fmt(a.due)}</span>` : '<span class="muted">—</span>'}</td><td class="small muted">${a.o ? fmt(a.o.date) : esc(a.source || '—')}</td></tr>`).join('')}</tbody></table></div>`
       : emptyState('checkSq', 'No action items here', 'Actions you agree in 1:1s appear here.')}`, { flush: true });
+  }
+  if (tab === 'leave') {
+    const rows = active().flatMap(p => upcomingLeave(p, 90).map(l => ({ ...l, p }))).sort((a, b) => a.from.localeCompare(b.from));
+    const ov = l => rows.filter(x => x.p.id !== l.p.id && x.from <= (l.to || l.from) && (x.to || x.from) >= l.from).map(x => x.p.profile.name);
+    const total = active().length;
+    return head + tabs + `<div class="card">${rows.length ? `<div class="card-body flush tbl-wrap"><table class="tbl"><thead><tr><th>Reportee</th><th>Dates</th><th class="c">Working days</th><th>Type</th><th>Status</th><th>Overlaps with</th></tr></thead><tbody>
+      ${rows.map(l => { const o = [...new Set(ov(l))]; return `<tr class="click" onclick="go('${personHref(l.p.id, 'leave')}')"><td>${personCell(l.p)}</td><td class="nowrap"><b>${fmt(l.from)}</b>${l.to && l.to !== l.from ? ` – ${fmt(l.to)}` : ''}<div class="sub">${relDays(l.from)}</div></td>
+        <td class="c">${workDays(l.from, l.to || l.from)}</td><td>${esc(l.type)}</td><td>${statusBadge(l.status)}</td><td>${o.length ? `<span class="badge ${o.length + 1 >= Math.max(2, Math.ceil(total / 2)) ? 'b-bad' : 'b-warn'}">${esc(o.join(', '))}</span>` : '<span class="muted small">—</span>'}</td></tr>`; }).join('')}</tbody></table></div>`
+      : `<div class="card-body">${emptyState('calendar', 'No leave in the next 90 days', 'Record leave on a reportee’s Leave page, or in the Leave tab of a 1:1.')}</div>`}
+      <div class="card-foot" style="justify-content:flex-start"><span class="xs muted">Manager-only view. Red means half the team or more is away at the same time.</span></div></div>`;
   }
   const up = [];
   active().forEach(p => {
@@ -62,6 +72,8 @@ function pgUpcoming() {
       (o.actions || []).filter(a => !a.done && a.due && a.due >= t && a.due <= addDays(t, 30)).forEach(a => up.push({ d: a.due, p, icon: 'checkSq', txt: `${a.owner === 'me' ? 'Your action' : 'Their action'}: ${a.text}`, sec: 'actions' }));
     });
     const pip = activePip(p); if (pip?.end && pip.end >= t && pip.end <= addDays(t, 30)) up.push({ d: pip.end, p, icon: 'flag', txt: 'Improvement plan end date', sec: 'pip' });
+    upcomingLeave(p, 30).forEach(l => up.push({ d: l.from < t ? t : l.from, p, icon: 'calendar', txt: `${l.from < t ? 'On leave until ' + fmtShort(l.to || l.from) : 'Leave starts'}${l.to && l.to !== l.from && l.from >= t ? ` (to ${fmtShort(l.to)})` : ''} · ${l.type}`, sec: 'leave' }));
+    (p.tasks || []).filter(a => !a.done && a.due && a.due >= t && a.due <= addDays(t, 30)).forEach(a => up.push({ d: a.due, p, icon: 'checkSq', txt: `${a.owner === 'me' ? 'Your action' : 'Their action'}: ${a.text}`, sec: 'actions' }));
   });
   const c = cycleOf(); if (c.end <= addDays(t, 30)) up.push({ d: c.end, icon: 'flag', txt: `${c.short} review cycle ends` });
   up.sort((a, b) => a.d.localeCompare(b.d));

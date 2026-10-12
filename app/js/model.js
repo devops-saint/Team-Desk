@@ -75,7 +75,8 @@ const STAY_QUESTIONS = [
 function defaultOrg() {
   return {
     version: 3,
-    settings: { managerName: '', cycleStartMonth: 4, theme: '', distribution: { ...DEFAULT_DISTRIBUTION }, upwardMin: 3 },
+    settings: { managerName: '', cycleStartMonth: 4, theme: '', distribution: { ...DEFAULT_DISTRIBUTION }, upwardMin: 3, aiAuto: true },
+    qbank: { topics: {}, hidden: {}, custom: [] },
     skills: DEFAULT_SKILLS.map(([name, cat]) => ({ id: uid(), name, cat })),
     roles: [], guidelines: [],
     framework: window.DEFAULT_FRAMEWORK ? JSON.parse(JSON.stringify(window.DEFAULT_FRAMEWORK)) : null,
@@ -84,7 +85,7 @@ function defaultOrg() {
 }
 function normP(p) {
   p.profile = p.profile || {};
-  for (const k of ['oneOnOnes', 'goals', 'idp', 'feedback', 'docs', 'strengths', 'devAreas', 'pips', 'stay']) p[k] = p[k] || [];
+  for (const k of ['oneOnOnes', 'goals', 'idp', 'feedback', 'docs', 'strengths', 'devAreas', 'pips', 'stay', 'tasks', 'leaves', 'suggestions']) p[k] = p[k] || [];
   for (const k of ['skills', 'kpi', 'reviews', 'ninebox', 'comp', 'talent']) p[k] = p[k] || {};
   p.grade = p.grade || '';
   p.docs.forEach(d => { if (!d.owner) d.owner = p.id; });
@@ -98,6 +99,7 @@ function migrate(s) {
   delete s.settings.pinHash;
   s.skills = s.skills || d.skills; s.roles = s.roles || []; s.guidelines = s.guidelines || [];
   s.leadership = { self: {}, upward: {}, ...(s.leadership || {}) };
+  s.qbank = { topics: {}, hidden: {}, custom: [], ...(s.qbank || {}) };
   s.reportees = (s.reportees || []).map(normP);
   s.roles.forEach(r => { r.kpis = r.kpis || []; r.skillTargets = r.skillTargets || {}; });
   s.guidelines.forEach(g => { g.owner = g.owner || ORG_OWNER; g.points = g.points || []; });
@@ -116,6 +118,9 @@ function nineOf(p) { const n = p.ninebox; if (!n.perf || !n.pot) return null; co
 const lastOne = p => [...p.oneOnOnes].sort((a, b) => b.date.localeCompare(a.date))[0];
 const nextOne = p => p.oneOnOnes.map(o => o.next).filter(d => d && d >= today()).sort()[0];
 const activePip = p => p.pips.find(x => x.status === 'Active' || x.status === 'Extended');
+/* every action item for a person: those agreed in 1:1s (o = meeting) and standalone ones (o = null) */
+const personActions = p => [...p.oneOnOnes.flatMap(o => (o.actions || []).map(a => ({ ...a, o }))), ...(p.tasks || []).map(a => ({ ...a, o: null }))];
+const upcomingLeave = (p, days = 30) => (p.leaves || []).filter(l => l.status !== 'Cancelled' && (l.to || l.from) >= today() && l.from <= addDays(today(), days)).sort((a, b) => a.from.localeCompare(b.from));
 
 /* ---------- review cycles (half-years) ---------- */
 function cycleInfo(y, h) {
@@ -210,10 +215,17 @@ function focusAreas(p) {
   }
   const rec3 = ones.slice(0, 3).filter(o => +o.morale);
   if (rec3.length) { const a = avg(rec3.map(o => +o.morale)); if (a <= 2.5) add(3, 'Engagement', `Low morale in recent 1:1s (average ${a.toFixed(1)}/5) — explore what is driving it`, 'meetings'); }
-  const od = ones.flatMap(o => (o.actions || []).filter(a => !a.done && a.due && a.due < t));
+  const od = personActions(p).filter(a => !a.done && a.due && a.due < t);
   if (od.length) add(2, 'Follow-through', `${plural(od.length, 'overdue action item')}${od.some(a => a.owner === 'me') ? ' — some are yours' : ''}`, 'actions');
   if (!ones.some(o => (o.career || o.grow?.goal) && daysBetween(o.date, t) <= 90) && ones.length) add(1, 'Career', 'No career or coaching conversation in the last 90 days', 'meetings');
 
+  const ns = (p.suggestions || []).filter(s => s.state === 'new');
+  if (ns.length) add(ns.some(s => s.sev >= 3) ? 3 : 2, 'Suggestions', `${plural(ns.length, 'suggested action')} from 1:1s and documents to review${ns.some(s => s.sev >= 3) ? ' — some are urgent' : ''}`, 'suggestions');
+  const lv = upcomingLeave(p, 21);
+  lv.forEach(l => {
+    const clash = p.goals.filter(g => !['Done', 'Dropped'].includes(g.status) && g.due && g.due >= l.from && g.due <= (l.to || l.from));
+    add(clash.length ? 2 : 1, 'Leave', `On leave ${fmtShort(l.from)}${l.to && l.to !== l.from ? '–' + fmtShort(l.to) : ''}${clash.length ? ` — clashes with goal due date: ${list(clash.map(g => g.title), 2)}` : ' — plan cover and handover'}`, 'leave');
+  });
   const pip = activePip(p);
   if (pip) {
     const lastCi = [...(pip.checkins || [])].sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -274,7 +286,7 @@ function leadershipMetrics(ck = cycleOf().key) {
   if (!n) return M;
   const slots = n * months.length, hit = ps.reduce((s, p) => s + months.filter(mo => p.oneOnOnes.some(o => o.date.startsWith(mo))).length, 0);
   m('coverage', '1:1 coverage', slots ? hit / slots * 100 : null, `${hit} of ${slots} monthly 1:1s held this cycle`, 90, 70, 'trust', 'Hold a 1:1 with every reportee every month.');
-  const mine = ps.flatMap(p => p.oneOnOnes.flatMap(o => (o.actions || []).filter(a => a.owner === 'me' && a.due && a.due <= t && inCycle(a.due, c))));
+  const mine = ps.flatMap(p => personActions(p).filter(a => a.owner === 'me' && a.due && a.due <= t && inCycle(a.due, c)));
   const onTime = mine.filter(a => a.done && (!a.doneOn || a.doneOn <= a.due)).length;
   m('followthrough', 'Your follow-through', mine.length ? onTime / mine.length * 100 : null, mine.length ? `${onTime} of ${mine.length} actions you owned were closed on time` : 'No actions owned by you were due yet', 85, 65, 'trust', 'Close the actions you commit to in 1:1s before their due date.', !mine.length);
   const recog = ps.filter(p => p.feedback.some(x => ['Achievement', 'Kudos'].includes(x.type) && daysBetween(x.date, t) <= 60)).length;

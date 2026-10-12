@@ -4,13 +4,14 @@
 'use strict';
 
 function pgSettings(tab) {
-  const labels = { general: 'General', security: 'Security', data: 'Data & backups', about: 'About & toolkit' };
+  const labels = { general: 'General', ai: 'AI assistant', security: 'Security', data: 'Data & backups', about: 'About & toolkit' };
   if (!labels[tab]) tab = 'general';
   crumbs([['Settings'], [labels[tab]]]);
   const head = pageHead('Settings', '') + tabsNav(Object.entries(labels), tab, k => `#/settings/${k}`);
   if (tab === 'security') return head + setSecurity();
   if (tab === 'data') { setTimeout(loadBackups, 0); return head + setData(); }
   if (tab === 'about') return head + setAbout();
+  if (tab === 'ai') { setTimeout(loadAiStatus, 0); return head + setAi(); }
   const s = S.settings;
   return head + card('General', `<form class="fgrid" onchange="saveSettings(this)">
     ${fld('Your name', 'managerName', s.managerName, { hint: 'Used for greetings, initials on competency ratings and the upward-feedback form.' })}
@@ -105,6 +106,9 @@ function setAbout() {
     ['heart', 'Engagement trends', 'Morale from 1:1s over six months, per person and team.'],
     ['compass', 'My leadership', 'Habits scorecard computed from your records, self-assessment on 12 manager competencies, and anonymous upward feedback (Start/Stop/Continue).'],
     ['flag', 'Where to focus', 'Prioritised list per reportee and across the team, drawing on all of the above.'],
+    ['compass', 'Suggested actions', 'Analyses 1:1 notes, guided answers and uploaded documents for wellbeing, workload, retention, blockers, delivery risk, conflict, learning, certifications, recognition and leave — with optional local AI. You review and accept.'],
+    ['clipboard', 'Guided 1:1 question bank & agenda', '15 topics from wellbeing to org contributions, with monthly/quarterly cadence, last month’s answers, and a “prepare next 1:1” agenda.'],
+    ['calendar', 'Leave & availability', 'Planned leave per person, team overlaps and clashes with deadlines.'],
   ];
   return `<div class="grid g-side">${card('Manager toolkit', tools.map(([i, t, d]) => `<div class="list-row">${ic(i, 18, 'style="color:var(--accent);margin-top:2px"')}<div><b>${t}</b><div class="small muted">${d}</div></div></div>`).join(''))}
     <div class="grid" style="align-content:start">${card('About', `<dl class="kv"><dt>Version</dt><dd>${esc(APP_VERSION)}</dd><dt>Runtime</dt><dd>Node ${esc(App.status?.node || '')} · ${esc(App.status?.platform || '')}</dd><dt>Address</dt><dd>${esc(location.origin)}</dd></dl>`)}
@@ -116,4 +120,43 @@ async function stopServer() {
   App.ready = false;
   $('#shell').hidden = true;
   $('#gate').innerHTML = `<div class="gate"><div class="gate-card narrow"><div class="gate-body" style="text-align:center;padding:36px 26px"><div class="brand-mark" style="margin:0 auto">TD</div><h2 class="mt">Team Desk has stopped</h2><p class="muted">Your data is saved and encrypted. You can close this tab.</p></div></div></div>`;
+}
+
+/* ---------- AI assistant (local, via Ollama) ---------- */
+function setAi() {
+  return `<div class="grid g-side"><div class="card"><div class="card-head"><div><h2>Local AI assistant</h2><p>Deeper suggestions from 1:1 notes and documents, using an AI model that runs on this computer through Ollama. Nothing is sent to the internet.</p></div></div>
+      <div class="card-body" id="ai-box"><div class="muted">Checking for Ollama…</div></div></div>
+    ${card('How it works', `<div class="list-row small">${ic('check', 15, 'style="color:var(--good)"')}<span><b>Built-in analysis always runs</b> — rules that spot wellbeing, workload, retention, blockers, delivery risk, learning, certifications, recognition and leave. No set-up needed.</span></div>
+      <div class="list-row small">${ic('compass', 15, 'style="color:var(--accent)"')}<span><b>Local AI adds</b> a summary, nuance and suggestions the rules can’t catch, plus personalised questions for your next 1:1.</span></div>
+      <div class="list-row small">${ic('shield', 15, 'style="color:var(--accent)"')}<span><b>Private:</b> Team Desk’s server talks to Ollama on <code>localhost</code> only. Suggestions are never applied without your review.</span></div>
+      <div class="list-row small">${ic('download', 15, 'style="color:var(--muted)"')}<span><b>Set-up:</b> install Ollama from ollama.com, then in Terminal run <code>ollama pull llama3.1:8b</code> (or <code>qwen2.5:7b</code>). 8 GB+ RAM recommended.</span></div>`)}</div>`;
+}
+async function loadAiStatus() {
+  const el = $('#ai-box'); if (!el) return;
+  const st = await AI.refresh();
+  if (!st) { el.innerHTML = callout('bad', 'Could not check the AI status.'); return; }
+  const models = st.models || [];
+  el.innerHTML = `<div class="row mb">${st.available ? `<span class="badge b-good">${ic('check', 12)} Ollama detected</span><span class="small muted">${plural(models.length, 'model')} installed</span>` : `<span class="badge b-warn">Ollama not detected</span><span class="small muted">${esc(st.error || '')}</span>`}</div>
+    <div class="fgrid">${st.available && models.length ? sel('Model', 'model', [['', '— choose a model —'], ...models.map(m => [m.name, `${m.name}${m.params ? ` · ${m.params}` : ''}`])], st.model, { attrs: 'id="ai-model"' })
+      : fld('Model', 'model', st.model, { attrs: 'id="ai-model"', ph: 'e.g. llama3.1:8b', hint: st.available ? 'No models installed yet — run “ollama pull llama3.1:8b”.' : '' })}
+      ${fld('Ollama address', 'url', st.url, { attrs: 'id="ai-url"', hint: 'Must be on this computer.' })}
+      ${chk('Use local AI for suggestions', 'enabled', st.enabled, { attrs: 'id="ai-on"', cls: 'full' })}
+      ${chk('Run automatically after each 1:1 and document upload (otherwise only when you click “Suggest actions”)', 'auto', S.settings.aiAuto !== false, { attrs: 'id="ai-auto"', cls: 'full' })}</div>
+    <div class="row mt"><button class="btn primary" onclick="saveAi()">Save</button><button class="btn" onclick="testAi()" ${st.available ? '' : 'disabled'}>Test</button><button class="btn ghost" onclick="loadAiStatus()">${ic('refresh', 14)}Re-check</button></div><div id="ai-test" class="mt"></div>`;
+}
+async function saveAi() {
+  try {
+    await api('PUT', '/api/ai/config', { model: $('#ai-model').value, url: $('#ai-url').value, enabled: $('#ai-on').checked });
+    S.settings.aiAuto = $('#ai-auto').checked; save();
+    if ($('#ai-on').checked && !$('#ai-model').value) toast('Choose a model to use local AI', 'err'); else toast('AI settings saved');
+    await loadAiStatus();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function testAi() {
+  await saveAi();
+  const el = $('#ai-test'); if (!el) return; el.innerHTML = callout('info', '<span class="spin"></span> Sending a short test to the model — the first run can take a minute while it loads…');
+  try {
+    const r = await AI.chat('Reply with JSON only: {"ok":true,"message":"..."}', 'Say hello to a busy manager in under ten words.');
+    el.innerHTML = callout('good', `Local AI is working: “${esc(r.message || 'ok')}”`);
+  } catch (e) { el.innerHTML = callout('bad', esc(e.message)); }
 }

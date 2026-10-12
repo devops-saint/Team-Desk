@@ -63,7 +63,7 @@ const NAV = [
     ['insights/calibration', 'bars', 'Calibration', '#/insights/calibration']]],
   ['My leadership', [['leadership', 'compass', 'Leadership', '#/leadership']]],
   ['Configuration', [['config/framework', 'target', 'Competency framework', '#/config/framework'], ['config/roles', 'clipboard', 'Roles & KPIs', '#/config/roles'],
-    ['config/skills', 'list', 'Technical skills', '#/config/skills'], ['config/guidelines', 'book', 'Org guidelines', '#/config/guidelines']]],
+    ['config/skills', 'list', 'Technical skills', '#/config/skills'], ['config/questions', 'message', '1:1 question bank', '#/config/questions'], ['config/guidelines', 'book', 'Org guidelines', '#/config/guidelines']]],
 ];
 const PAGE = { crumbs: [] };
 const crumbs = c => { PAGE.crumbs = c; };
@@ -136,6 +136,7 @@ function dispatch(r) {
       if (r[1] === 'roles') return r[2] ? pgRole(r[2]) : pgRoles();
       if (r[1] === 'skills') return pgSkillsCatalogue();
       if (r[1] === 'guidelines') return pgGuidelines();
+      if (r[1] === 'questions') return pgQuestionBank();
       return pgFramework(r[2] || 'expectations');
     case 'settings': return pgSettings(r[1] || 'general');
     default: return pgDashboard();

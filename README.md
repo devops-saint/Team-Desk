@@ -1,10 +1,12 @@
-# Team Desk 3.0
+# Team Desk 3.1
 
 A private, encrypted workspace for managing your reportees: 1:1s, your organisation's competency matrix, technical skills, KPIs, goals, development plans, talent and retention, improvement plans, half-yearly reviews and calibration, plus tools for assessing your own leadership.
 
 It runs **only on your computer** (Mac or Windows). You open it in your browser at `http://localhost:4317`. It stores everything **encrypted** in a folder you choose.
 
 ---
+
+> **Presenting Team Desk?** A ready-to-use demo script with what to click and what to say is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 
 ## 1. Requirements
 
@@ -84,16 +86,69 @@ npm install
   - Anonymous upward feedback: download a questionnaire, share it with your team, then import their response files. Results show only after at least 3 responses.
 - **Configuration:** competency framework (your matrix is built in), roles and KPI uploads, technical skills list, and organisation guidelines with search.
 - **Dates:** every date field opens a calendar picker.
+- **Intelligence:** suggested actions from 1:1s and documents, optional local AI, a guided 1:1 question bank, a prepare-next-1:1 agenda, and leave tracking (see section 7).
 
-## 7. Coming from the browser-only version (v1/v2)
+## 7. Intelligence: suggested actions, guided 1:1s and leave
+
+### Suggested actions
+
+Every time you save a 1:1 or upload a document for a reportee, Team Desk reads it and suggests what you, as their manager, might do next.
+
+- **What it looks for:**
+  - wellbeing and stress, workload and under-use, retention signals (offers, pay, promotion), blockers, delivery risk, working-relationship concerns and requests for your support;
+  - learning plans, certifications (with exam dates), presentations and knowledge sharing, recruitment help, achievements and career aspirations;
+  - planned leave (it reads dates like "24–28 Nov");
+  - admin items and performance concerns.
+- **Patterns across meetings:** it also notices when morale drops sharply, when the same blocker comes up twice, and when concerns are raised two meetings running.
+- **You decide:** a review window lets you edit each suggestion, choose where it goes (action for you or for them, development plan, goal, feedback log, leave, flight risk with a stay conversation, career notes, your leadership notes), and accept or dismiss it. Anything you don't decide on stays in the reportee's **Suggested actions** list.
+- **Re-run anytime:** to analyse something again, open a 1:1 or document and click **Suggest actions**.
+
+### Optional local AI (Ollama)
+
+For deeper, more nuanced suggestions and personalised 1:1 questions, Team Desk can use an AI model that runs **on your own computer**:
+
+1. Install Ollama from <https://ollama.com>. Then in Terminal, run `ollama pull llama3.1:8b`. (`qwen2.5:7b` also works well; 8 GB+ RAM recommended.)
+2. In Team Desk, go to **Settings › AI assistant**. Choose the model, tick **Use local AI**, then click **Test**.
+
+Team Desk's server talks to Ollama on `localhost` only. Addresses on other computers are refused, so nothing leaves your machine. The built-in analysis works with or without AI.
+
+### Guided 1:1 questions
+
+The 1:1 form opens on **Guided questions**, a bank of 15 topics:
+
+- **Every month:** wellbeing & workload, project status, technical, goals & performance, self-development & learning, org-level trainings & presentations, wins & recognition, leave & availability, admin & compliance (timesheets, mandatory trainings), and feedback for you.
+- **Every quarter:** certifications, org contributions (initiatives, knowledge sharing, recruitment, mentoring), collaboration & non-technical skills, career & growth, and team, culture & retention.
+
+Monthly topics always appear. Quarterly topics are flagged **due** when they haven't been covered for about three months. Each question shows the answer from the last meeting. To change how often a topic comes up, hide questions or add your own, go to **Configuration › 1:1 question bank**.
+
+### Prepare next 1:1
+
+Click **Prepare next 1:1** on a reportee's Overview or 1:1 page, or from the dashboard. It builds an agenda for you:
+
+- open actions and last time's concerns and blockers;
+- signals worth exploring;
+- quarterly topics that are due;
+- upcoming leave and deadlines;
+- suggested follow-up questions.
+
+With local AI turned on, it can also suggest personalised questions. You can print the agenda.
+
+### Leave & availability
+
+Record leave per reportee from their **Leave & availability** page, or from the **Leave** tab of a 1:1. Leave mentioned in answers is also suggested automatically.
+
+- **Team leave:** Upcoming › Team leave shows everyone's leave for the next 90 days and who overlaps.
+- **Clash warnings:** Team Desk warns when leave clashes with a goal's due date.
+
+## 8. Coming from the browser-only version (v1/v2)
 
 In the old `TeamDesk.html`, go to **Settings › Export backup**. Then in Team Desk 3, use the import option during set-up, or **Settings › Data & backups › Import backup file**.
 
-## 8. Updating Team Desk
+## 9. Updating Team Desk
 
 Replace this program folder with the new version. Your data folder is separate and is never touched by an update. Team Desk remembers which data folder to use in `~/.teamdesk/config.json`.
 
-## 9. Keeping the code in git
+## 10. Keeping the code in git
 
 The repository should contain **only the program**, never your data. Two files take care of this:
 
@@ -115,7 +170,7 @@ git status --ignored --short   # lines starting with !! are ignored
 
 `app/js/framework-default.js` contains your organisation's competency matrix, built in as the default. If the repository will be shared outside your organisation, remove that file or make the repository private. Team Desk works without it: you then upload the matrix under **Configuration › Competency framework**.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 - **"Team Desk server isn't running"**: start it with the launcher, then reload the page.
 - **Port already in use**: Team Desk automatically tries the next ports (4318, 4319, …). The terminal window shows the address it's using.
