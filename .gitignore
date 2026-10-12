@@ -1,0 +1,82 @@
+# =========================================================
+# Team Desk — files that must never be committed
+# =========================================================
+
+# ---- Personal / confidential data (NEVER commit) ----
+# Encrypted data folder created by the setup wizard, wherever it is placed
+TeamDesk Data/
+*.tde
+vault.json
+backups/
+.rekey-*/
+*.tmp-*
+# Local app config (remembers your data-folder path)
+.teamdesk/
+# Backups exported from the old browser version (v1/v2)
+*.tdbackup
+TeamDesk-backup-*.json
+# Files the app downloads for you: exports, questionnaires, responses
+Competency_Matrix_*.xlsx
+Anonymous_feedback_*.html
+feedback-response-*.json
+# Source files from HR / reportees dropped into the project by mistake
+*.xlsx
+*.xls
+*.docx
+*.doc
+*.pdf
+*.csv
+
+# ---- Dependencies (restored with `npm install`) ----
+node_modules/
+
+# ---- Build & packaging output ----
+dist/
+build/
+*.zip
+*.tgz
+
+# ---- Logs & runtime ----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.pid
+
+# ---- Environment / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- Test & tooling output ----
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+screenshots/
+.cache/
+tmp/
+temp/
+
+# ---- Editors & IDEs ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+
+# ---- Operating system files ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

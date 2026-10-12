@@ -1,0 +1,16 @@
+# Normalise line endings so the project behaves the same on Mac and Windows
+* text=auto eol=lf
+
+# Windows launcher must keep CRLF line endings
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Mac launcher must keep LF line endings (it is a shell script)
+*.command text eol=lf
+
+# Binary files — never touch line endings
+*.png binary
+*.ico binary
+*.xlsx binary
+*.zip binary
+*.tde binary

@@ -1,0 +1,19 @@
+{
+  "name": "team-desk",
+  "version": "3.0.0",
+  "description": "Private, encrypted manager workspace for managing reportees — runs locally.",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "server/server.js",
+  "bin": { "teamdesk": "server/server.js" },
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server/server.js",
+    "start:no-open": "node server/server.js --no-open"
+  },
+  "optionalDependencies": {
+    "pdfjs-dist": "3.11.174",
+    "mammoth": "1.6.0",
+    "xlsx": "0.18.5"
+  }
+}

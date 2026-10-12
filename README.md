@@ -93,7 +93,29 @@ In the old `TeamDesk.html`, go to **Settings › Export backup**. Then in Team D
 
 Replace this program folder with the new version. Your data folder is separate and is never touched by an update. Team Desk remembers which data folder to use in `~/.teamdesk/config.json`.
 
-## 9. Troubleshooting
+## 9. Keeping the code in git
+
+The repository should contain **only the program**, never your data. Two files take care of this:
+
+- **`.gitignore`** keeps these out of git:
+  - the data folder and anything encrypted (`TeamDesk Data/`, `*.tde`, `vault.json`, `backups/`);
+  - exports and downloads (competency matrices, feedback questionnaires and responses, old-version backups);
+  - office documents (`.xlsx`, `.docx`, `.pdf`, `.csv`) dropped into the folder by mistake;
+  - `node_modules/`, zip builds, logs, `.env` files, and editor or operating-system clutter.
+- **`.gitattributes`** fixes line endings: `Start Team Desk.bat` keeps Windows (CRLF) line endings and `Start Team Desk.command` keeps Mac (LF) line endings, so both launchers still work after a clone.
+
+Keep your data folder **outside** this program folder, for example in `Documents/TeamDesk Data`. Then it can't end up in a commit even by accident.
+
+To check what will be committed before pushing:
+
+```
+git status --short
+git status --ignored --short   # lines starting with !! are ignored
+```
+
+`app/js/framework-default.js` contains your organisation's competency matrix, built in as the default. If the repository will be shared outside your organisation, remove that file or make the repository private. Team Desk works without it: you then upload the matrix under **Configuration › Competency framework**.
+
+## 10. Troubleshooting
 
 - **"Team Desk server isn't running"**: start it with the launcher, then reload the page.
 - **Port already in use**: Team Desk automatically tries the next ports (4318, 4319, …). The terminal window shows the address it's using.
