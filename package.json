@@ -1,12 +1,13 @@
 {
   "name": "team-desk",
-  "version": "3.3.0",
-  "description": "Private, encrypted manager workspace for managing reportees — runs locally.",
+  "version": "4.0.1",
+  "description": "Encrypted manager workspace for managing reportees \u2014 personal (runs on your computer) or central (one server for all managers, with sign-in and role-based access).",
   "private": true,
   "license": "UNLICENSED",
   "main": "server/server.js",
   "bin": {
-    "teamdesk": "server/server.js"
+    "teamdesk": "server/server.js",
+    "teamdesk-server": "server/central.js"
   },
   "engines": {
     "node": ">=18"
@@ -14,12 +15,15 @@
   "scripts": {
     "start": "node server/server.js",
     "start:no-open": "node server/server.js --no-open",
+    "server": "node server/central.js",
     "demo": "node scripts/seed-demo.js",
-    "demo:remove": "node scripts/seed-demo.js --remove"
+    "demo:remove": "node scripts/seed-demo.js --remove",
+    "demo:central": "node scripts/seed-central.js",
+    "demo:central:remove": "node scripts/seed-central.js --remove"
   },
   "optionalDependencies": {
-    "pdfjs-dist": "3.11.174",
-    "mammoth": "1.6.0",
-    "xlsx": "0.18.5"
+    "pdfjs-dist": "^5.4.149",
+    "mammoth": "^1.11.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

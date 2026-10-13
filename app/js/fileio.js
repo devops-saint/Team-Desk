@@ -5,19 +5,26 @@
    ========================================================= */
 'use strict';
 
-/* ---------- third-party readers: local copy first (npm install), CDN fallback ---------- */
+/* ---------- third-party readers: local copy first (npm install), CDN fallback ----------
+   Versions are kept on releases without known vulnerabilities:
+   pdf.js 5.x (CVE-2024-4367 fixed in 4.2.67), mammoth 1.11+ (CVE-2025-11849), SheetJS 0.20.3 (CVE-2023-30533, CVE-2024-22363).
+   SheetJS no longer publishes fixed versions to npm or cdnjs, so it comes from cdn.sheetjs.com. */
+const PDFJS_VER = '5.4.149', MAMMOTH_VER = '1.11.0', SHEETJS_VER = '0.20.3';
 const LIBS = {
-  pdf: { local: '/vendor/pdf.min.js', cdn: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', get: () => window.pdfjsLib,
-    worker: ['/vendor/pdf.worker.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'] },
-  mammoth: { local: '/vendor/mammoth.browser.min.js', cdn: 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js', get: () => window.mammoth },
-  xlsx: { local: '/vendor/xlsx.full.min.js', cdn: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', get: () => window.XLSX },
+  pdf: { module: true, local: '/vendor/pdf.min.mjs', cdn: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.min.mjs`, get: () => window.pdfjsLib,
+    worker: ['/vendor/pdf.worker.min.mjs', `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.worker.min.mjs`] },
+  mammoth: { local: '/vendor/mammoth.browser.min.js', cdn: `https://cdn.jsdelivr.net/npm/mammoth@${MAMMOTH_VER}/mammoth.browser.min.js`, get: () => window.mammoth },
+  xlsx: { local: '/vendor/xlsx.full.min.js', cdn: `https://cdn.sheetjs.com/xlsx-${SHEETJS_VER}/package/dist/xlsx.full.min.js`, get: () => window.XLSX },
 };
 const libSource = {};
 const addScript = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => { s.remove(); rej(); }; document.head.appendChild(s); });
+/* pdf.js 5 is an ES module: import it, then expose it the same way the old script did */
+const addModule = async src => { const m = await import(src); window.pdfjsLib = m.GlobalWorkerOptions ? m : (globalThis.pdfjsLib || m); };
 async function loadLib(k) {
   const L = LIBS[k]; if (L.get()) return L.get();
-  try { await addScript(L.local); libSource[k] = 'local'; }
-  catch { try { await addScript(L.cdn); libSource[k] = 'cdn'; } catch { throw new Error('The file reader could not be loaded. Connect to the internet once, or run “npm install” in the Team Desk folder for offline use.'); } }
+  const add = L.module ? addModule : addScript;
+  try { await add(L.local); libSource[k] = 'local'; }
+  catch { try { await add(L.cdn); libSource[k] = 'cdn'; } catch { throw new Error('The file reader could not be loaded. Connect to the internet once, or run “npm install” in the Team Desk folder for offline use.'); } }
   return L.get();
 }
 async function extractText(file) {

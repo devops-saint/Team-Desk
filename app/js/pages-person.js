@@ -22,15 +22,27 @@ function pgPerson(id, sec) {
   const r = roleOf(p), nb = nineOf(p), pip = activePip(p);
   const f = focusAreas(p), hi = f.filter(x => x.lvl === 3).length;
   const count = { actions: personActions(p).filter(a => !a.done).length, overview: hi || null, pip: pip ? '●' : null, suggestions: newSuggestions(p).length || null, leave: upcomingLeave(p, 30).length || null };
-  const meta = [p.profile.designation, p.grade && `Grade ${p.grade}`, r?.name, p.profile.since && `Reports to you since ${fmt(p.profile.since)}`].filter(Boolean).map(esc).join(' · ');
+  const pm = isPM();
+  const meta = [p.profile.designation, p.grade && `Grade ${p.grade}`, r?.name, pm ? `Line manager: ${managerName(p.managerId) || '—'}` : p.profile.since && `Reports to you since ${fmt(p.profile.since)}`].filter(Boolean).map(esc).join(' · ');
+  if (pm) logView(p.id);
   const body = { overview: secOverview, suggestions: secSuggestions, leave: secLeave, meetings: secMeetings, actions: secActions, competencies: secCompetencies, skills: secSkills, kpis: secKpis, talent: secTalent,
     goals: secGoals, idp: secIdp, strengths: secStrengths, feedback: secFeedback, pip: secPip, profile: secProfile, documents: secDocuments, review: secReview }[sec](p);
   return `<div class="person-head"><div class="row" style="gap:14px;flex-wrap:nowrap">${avatar(p, 'lg')}<div><h1>${esc(p.profile.name)}</h1><div class="meta">${meta || 'No designation set'}</div>
       <div class="row mt-s">${p.archived ? '<span class="badge">Archived</span>' : ''}${nb ? `<span class="badge b-acc">${esc(nb.name)}</span>` : ''}${riskBadge(p.ninebox.risk)}${pip ? '<span class="badge b-warn">Improvement plan active</span>' : ''}</div></div></div>
-      <div class="row"><button class="btn" onclick="quickNote('${p.id}')">${ic('edit', 15)}Quick note</button><button class="btn" onclick="editProfile('${p.id}')">Edit profile</button><button class="btn primary" onclick="editOne('${p.id}')">${ic('message', 15)}Log 1:1</button></div></div>
+      <div class="row">${pm ? `<button class="btn primary" onclick="reportDialog('${p.id}')">${ic('download', 15)}Download report</button>`
+        : `<button class="btn" onclick="quickNote('${p.id}')">${ic('edit', 15)}Quick note</button><button class="btn" onclick="editProfile('${p.id}')">Edit profile</button><button class="btn" onclick="reportDialog('${p.id}')" title="Download a report for HR or leadership">${ic('download', 15)}Report</button><button class="btn primary" onclick="editOne('${p.id}')">${ic('message', 15)}Log 1:1</button>`}</div></div>
+    ${pm ? `<div class="mb">${callout('info', `View only. ${esc(firstName(p.profile.name))}’s record is maintained by ${esc(managerName(p.managerId) || 'their line manager')}.${p.privateHidden ? ' Line managers’ private notes are not shown.' : ''}`, 'eye')}</div>` : ''}
     <div class="ws"><nav class="subnav" aria-label="Sections">${SECTIONS.map(([g, items]) => `<div class="grp">${g}</div>${items.map(([k, l, icon]) => `<a class="${k === sec ? 'on' : ''}" href="${personHref(p.id, k)}">${ic(icon, 15)}${l}${count[k] ? `<span class="badge ${k === 'overview' ? 'b-bad' : k === 'pip' || k === 'suggestions' ? 'b-warn' : ''}">${count[k]}</span>` : ''}</a>`).join('')}`).join('')}</nav>
       <select class="input subnav-select" onchange="go('${personHref(p.id, '')}'+this.value)">${SECTIONS.map(([g, items]) => `<optgroup label="${g}">${items.map(([k, l]) => `<option value="${k}" ${k === sec ? 'selected' : ''}>${l}</option>`).join('')}</optgroup>`).join('')}</select>
       <div style="min-width:0">${body}</div></div>`;
+}
+
+/* people managers' views of a reportee are recorded in the audit log (once per person per hour) */
+const viewLogged = {};
+function logView(pid) {
+  if (!CENTRAL || Date.now() - (viewLogged[pid] || 0) < 3600000) return;
+  viewLogged[pid] = Date.now();
+  api('POST', '/api/audit', { action: 'view-reportee', target: pid }).catch(() => {});
 }
 
 /* ---------------- Overview ---------------- */
@@ -101,7 +113,7 @@ function editOne(pid, oid) {
       ['Guided questions', guidedPane(p, o)],
       ['Notes', `<div class="fgrid">${area('Their updates & wins', 'updates', o.updates, { ph: 'Progress on goals and projects, what went well' })}${area('Discussion notes', 'notes', o.notes, { rows: 4 })}
         ${area('Concerns / blockers', 'concerns', o.concerns, { cls: '' })}${area('Support needed from you', 'support', o.support, { cls: '' })}${area('Career & growth discussion', 'career', o.career, { rows: 2 })}
-        ${area('Private notes (only you see these)', 'private', o.private, { rows: 2 })}</div>`],
+        ${area(CENTRAL && App.status?.pmSeesPrivate ? 'Private notes (you and people managers)' : 'Private notes (only you see these)', 'private', o.private, { rows: 2 })}</div>`],
       ['Coaching (GROW)', `${callout('info', '<b>GROW</b> keeps a coaching conversation focused: agree the <b>G</b>oal, explore the current <b>R</b>eality, generate <b>O</b>ptions, then commit to a <b>W</b>ay forward. Ask more than you tell.')}
         <div class="fgrid">${area('Goal — what do they want to achieve?', 'g_goal', g.goal, { rows: 2 })}${area('Reality — where are things now? What’s getting in the way?', 'g_reality', g.reality, { rows: 2 })}
         ${area('Options — what could they do?', 'g_options', g.options, { rows: 2 })}${area('Way forward — what will they do, and by when?', 'g_way', g.way, { rows: 2 })}</div>
@@ -306,7 +318,7 @@ function secTalent(p) {
   return head + `<div class="grid g2">${card('Placement & flight risk', `<form id="nbform" class="fgrid" onchange="saveNine('${p.id}')">
       ${sel('Performance', 'perf', [['', '—'], ['1', 'Low'], ['2', 'Moderate'], ['3', 'High']], n.perf)}${sel('Potential', 'pot', [['', '—'], ['1', 'Low'], ['2', 'Moderate'], ['3', 'High']], n.pot)}
       ${sel('Flight risk', 'risk', [['', '—'], 'Low', 'Medium', 'High'], n.risk)}${fld('Main risk factor', 'riskReason', n.riskReason, { ph: 'e.g. compensation, growth, manager, workload' })}
-      ${area('Retention actions', 'retention', n.retention, { rows: 2 })}</form>${nb ? `<div class="mt">${callout('info', `<b>${esc(nb.name)}</b> — ${esc(nb.action)}`)}</div>` : ''}`, { sub: 'Saved automatically · visible only to you' })}
+      ${area('Retention actions', 'retention', n.retention, { rows: 2 })}</form>${nb ? `<div class="mt">${callout('info', `<b>${esc(nb.name)}</b> — ${esc(nb.action)}`)}</div>` : ''}`, { sub: `Saved automatically · ${CENTRAL ? 'visible to you and people managers' : 'visible only to you'}` })}
     ${card('Position on the 9-box', `<div class="nine" style="grid-template-rows:repeat(3,auto) 22px"><div class="axis y" style="grid-row:1/4">Potential →</div>${[3, 2, 1].map(pot => [1, 2, 3].map(perf => cell(perf, pot)).join('')).join('')}<div></div><div class="axis" style="grid-column:2/5">Performance →</div></div>`)}</div>`;
 }
 function saveNine(id) { const p = getP(id); p.ninebox = { ...p.ninebox, ...formObj($('#nbform')), updated: today() }; save(); render(); }
@@ -470,10 +482,11 @@ function addPipCheckin(pid, xid) {
 function secProfile(p) {
   const pr = p.profile, r = roleOf(p);
   const kv = rows => `<dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v || '—')}</dd>`).join('')}</dl>`;
-  return sectionHead('Profile', '', `<button class="btn" onclick="printPerson('${p.id}')">${ic('printer', 15)}One-page summary</button><button class="btn" onclick="editProfile('${p.id}')">${ic('edit', 15)}Edit profile</button>`) +
+  return sectionHead('Profile', '', `<button class="btn" onclick="printPerson('${p.id}')">${ic('printer', 15)}One-page summary</button><button class="btn" onclick="reportDialog('${p.id}')">${ic('download', 15)}Full report</button><button class="btn" onclick="editProfile('${p.id}')">${ic('edit', 15)}Edit profile</button>`) +
     `<div class="grid g2">${card('Employment', kv([['Employee ID', pr.empId], ['Designation', pr.designation], ['Grade', p.grade], ['Role', r?.name], ['Band', pr.band], ['Team / project', pr.team], ['Date of joining', pr.doj && fmt(pr.doj)], ['Reporting to you since', pr.since && fmt(pr.since)], ['Last promotion', pr.lastPromo && fmt(pr.lastPromo)], ['Work mode', pr.workMode], ['Location', pr.location], ['1:1 frequency', pr.cadence || 'Monthly'], ['Probation', pr.probationEnd ? `${pr.confirmed ? 'Confirmed' : 'Ends'} ${fmt(pr.probationEnd)}` : '']]))}
     <div class="grid" style="align-content:start">${card('Contact', kv([['Email', pr.email], ['Phone', pr.phone], ['Birthday', pr.dob ? parseD(pr.dob).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }) : '']]))}${card('Background & aspirations', kv([['Experience', pr.exp && pr.exp + ' years'], ['Education', pr.education], ['Certifications', pr.certs], ['Responsibilities', pr.projects], ['Aspirations', pr.aspirations], ['Personal context', pr.personal]]))}</div></div>
-    ${card('Record', `<div class="row"><button class="btn" onclick="toggleArchive('${p.id}')">${ic('archive', 15)}${p.archived ? 'Restore to active team' : 'Archive (moved out of team)'}</button><button class="btn danger" onclick="delPerson('${p.id}')">${ic('trash', 15)}Delete permanently</button></div>`, { cls: 'mt', sub: 'Archiving keeps their history; deleting removes their encrypted file and documents.' })}`;
+    ${(p.transfers || []).length ? card('Reporting history', (p.transfers || []).map(t => `<div class="list-row small">${ic('swap', 14, 'style="color:var(--muted)"')}<span class="grow">${fmt(t.date)} — moved from <b>${esc(t.fromName || '—')}</b> to <b>${esc(t.toName)}</b></span><span class="muted xs">by ${esc(t.by)}</span></div>`).join(''), { cls: 'mt' }) : ''}
+    ${isPM() ? '' : card('Record', `<div class="row"><button class="btn" onclick="toggleArchive('${p.id}')">${ic('archive', 15)}${p.archived ? 'Restore to active team' : 'Archive (moved out of team)'}</button><button class="btn danger" onclick="delPerson('${p.id}')">${ic('trash', 15)}Delete permanently</button></div>`, { cls: 'mt', sub: 'Archiving keeps their history; deleting removes their encrypted file and documents.' })}`;
 }
 function toggleArchive(id) { const p = getP(id); p.archived = !p.archived; save(); render(); toast(p.archived ? 'Archived' : 'Restored'); }
 function delPerson(id) {

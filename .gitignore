@@ -12,6 +12,15 @@ backups/
 *.tmp-*
 # Local app config (remembers your data-folder path)
 .teamdesk/
+# Central server: data folder, server key, TLS keys, audit logs
+teamdesk-central-data/
+central.json
+*.key
+*.pem
+*.crt
+audit/
+# Unencrypted data exports (Settings › Export all data / My data)
+TeamDesk_export_*.json
 # Backups exported from the old browser version (v1/v2)
 *.tdbackup
 TeamDesk-backup-*.json

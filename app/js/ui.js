@@ -6,6 +6,9 @@
 
 /* ---------- icons (stroke, 24px grid) ---------- */
 const ICONS = {
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  swap: '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
@@ -65,29 +68,46 @@ const NAV = [
   ['Configuration', [['config/framework', 'target', 'Competency framework', '#/config/framework'], ['config/roles', 'clipboard', 'Roles & KPIs', '#/config/roles'],
     ['config/skills', 'list', 'Technical skills', '#/config/skills'], ['config/questions', 'message', '1:1 question bank', '#/config/questions'], ['config/guidelines', 'book', 'Org guidelines', '#/config/guidelines']]],
 ];
+const NAV_ADMIN = ['Administration', [['admin/users', 'users', 'Users & access', '#/admin/users'], ['admin/ownership', 'swap', 'Reportee ownership', '#/admin/ownership'],
+  ['admin/audit', 'clipboard', 'Audit log', '#/admin/audit'], ['admin/server', 'sliders', 'Server settings', '#/admin/server']]];
+/* the menu depends on the profile in the central version */
+function navFor() {
+  if (!CENTRAL) return NAV;
+  const config = NAV.find(n => n[0] === 'Configuration');
+  if (App.profile === 'admin') return [NAV_ADMIN, config];
+  let nav = NAV;
+  if (isPM()) nav = [['Overview', [['dashboard', 'home', 'Organisation', '#/dashboard'], ['upcoming', 'calendar', 'Upcoming', '#/upcoming']]],
+    ['People', [['people', 'users', 'All reportees', '#/people'], ['managers', 'user', 'Line managers', '#/managers']]], NAV.find(n => n[0] === 'Insights'), config];
+  return isAdmin() ? [...nav, NAV_ADMIN] : nav;
+}
 const PAGE = { crumbs: [] };
 const crumbs = c => { PAGE.crumbs = c; };
 
 function renderSidebar(r) {
-  const key = r[0] === 'insights' || r[0] === 'config' ? `${r[0]}/${r[1] || ''}` : r[0];
+  const key = ['insights', 'config', 'admin'].includes(r[0]) ? `${r[0]}/${r[1] || ''}` : r[0];
   const folder = (App.status?.dataDir || '').split(/[\\/]/).filter(Boolean).pop() || '';
-  $('#sidebar').innerHTML = `<div class="brand"><div class="brand-mark">TD</div><div><b>Team Desk</b><span>Manager workspace</span></div></div>
-    ${NAV.map(([sec, items]) => `<div class="nav-sec">${sec}</div>${items.map(([k, icon, label, href]) => {
-      const on = key === k || (k === 'insights/competency' && key === 'insights/') || (k === 'config/framework' && key === 'config/');
-      const count = k === 'people' ? `<span class="count">${active().length}</span>` : '';
+  const pending = App.status?.pending || 0;
+  const foot = CENTRAL ? `${(App.status?.profiles || []).length > 1 ? `<button class="nav-item" onclick="switchProfile()">${ic('swap')}Switch profile</button>` : ''}
+      <button class="nav-item" onclick="signOut()">${ic('logout')}Sign out</button>
+      <div class="vault-pill" title="${esc(App.user?.email || '')}"><span class="avatar sm">${esc(initials(App.user?.name))}</span><div>${esc(App.user?.name || '')}<b>${esc(PROFILE_LABEL[App.profile] || '')}${isAdmin() && App.profile !== 'admin' ? ' · Admin' : ''}</b></div></div>`
+    : `<button class="nav-item" onclick="lockNow()">${ic('lock')}Lock Team Desk</button>
+      <div class="vault-pill" title="${esc(App.status?.dataDir || '')}">${ic('shield', 14)}<div>Encrypted data folder<b>${esc(folder)}</b></div></div>`;
+  $('#sidebar').innerHTML = `<div class="brand"><div class="brand-mark">TD</div><div><b>Team Desk</b><span>${CENTRAL ? (isPM() ? 'People manager view' : App.profile === 'admin' ? 'Administration' : 'Manager workspace') : 'Manager workspace'}</span></div></div>
+    ${navFor().map(([sec, items]) => `<div class="nav-sec">${sec}${sec === 'Configuration' && !canEditConfig() ? ' <span class="xs" style="text-transform:none;letter-spacing:0">· view only</span>' : ''}</div>${items.map(([k, icon, label, href]) => {
+      const on = key === k || (k === 'insights/competency' && key === 'insights/') || (k === 'config/framework' && key === 'config/') || (k === 'admin/users' && key === 'admin/');
+      const count = k === 'people' ? `<span class="count">${active().length}</span>` : k === 'admin/users' && pending ? `<span class="count" style="background:var(--warn-bg);color:var(--warn)">${pending}</span>` : k === 'managers' ? `<span class="count">${Object.keys(App.managers || {}).length}</span>` : '';
       return `<a class="nav-item ${on ? 'on' : ''}" href="${href}">${ic(icon)}${label}${count}</a>`; }).join('')}`).join('')}
     <div class="side-foot">
       <a class="nav-item ${r[0] === 'settings' ? 'on' : ''}" href="#/settings">${ic('sliders')}Settings</a>
-      <button class="nav-item" onclick="lockNow()">${ic('lock')}Lock Team Desk</button>
-      <div class="vault-pill" title="${esc(App.status?.dataDir || '')}">${ic('shield', 14)}<div>Encrypted data folder<b>${esc(folder)}</b></div></div>
+      ${foot}
     </div>`;
 }
 function renderTopbar() {
   const c = PAGE.crumbs;
   $('#topbar').innerHTML = `<nav class="crumbs" aria-label="Breadcrumb">${c.map((x, i) => i === c.length - 1 ? `<b>${esc(x[0])}</b>` : `<a href="${x[1]}">${esc(x[0])}</a><span class="sep">/</span>`).join('')}</nav>
-    <div class="search">${ic('search', 15)}<input id="gsearch" placeholder="Search people and notes…" autocomplete="off" oninput="searchPeople(this.value)" onkeydown="searchKey(event)" onblur="setTimeout(()=>$('#gresults')?.remove(),150)"></div>
-    <button class="btn" onclick="quickNote()" title="Capture an observation for any reportee" aria-label="Quick note">${ic('edit', 15)}<span class="lbl">Quick note</span></button>
-    <button class="btn primary" onclick="editProfile()" aria-label="Add reportee">${ic('plus', 15)}<span class="lbl">Add reportee</span></button>
+    ${App.profile === 'admin' ? '<span class="grow"></span>' : `<div class="search">${ic('search', 15)}<input id="gsearch" placeholder="Search people and notes…" autocomplete="off" oninput="searchPeople(this.value)" onkeydown="searchKey(event)" onblur="setTimeout(()=>$('#gresults')?.remove(),150)"></div>`}
+    ${isLM() ? `<button class="btn" onclick="quickNote()" title="Capture an observation for any reportee" aria-label="Quick note">${ic('edit', 15)}<span class="lbl">Quick note</span></button>
+    <button class="btn primary" onclick="editProfile()" aria-label="Add reportee">${ic('plus', 15)}<span class="lbl">Add reportee</span></button>` : isPM() ? `<span class="badge b-acc" title="People managers can view every team but not change records">${ic('eye', 13)} View only</span>` : ''}
     <span class="savestate" id="savestate"></span>`;
   renderSaveState();
 }
@@ -96,7 +116,7 @@ function renderSaveState() {
   const st = Store.state;
   el.className = 'savestate ' + st;
   el.innerHTML = `<span class="dot"></span><span class="txt">${st === 'pending' ? 'Saving…' : st === 'error' ? 'Not saved' : Store.lastSaved ? `Saved ${Store.lastSaved.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'All changes saved'}</span>`;
-  el.title = st === 'error' ? Store.error || '' : 'Saved to your encrypted data folder';
+  el.title = st === 'error' ? Store.error || '' : CENTRAL ? 'Saved, encrypted, on the Team Desk server' : 'Saved to your encrypted data folder';
 }
 function searchPeople(q) {
   $('#gresults')?.remove();
@@ -125,11 +145,21 @@ function render() {
   let html;
   try { html = dispatch(r); }
   catch (e) { console.error(e); html = pageHead('Something went wrong', esc(e.message)) + `<div class="card card-body">${esc(e.stack || '')}</div>`; }
+  if (CENTRAL && r[0] === 'config' && r[1] !== 'questions' && !canEditConfig()) html = `<div class="mb">${callout('info', 'Organisation configuration is managed by your Team Desk administrators. You can view it here; ask an administrator for changes.', 'eye')}</div>` + html;
   $('#main').innerHTML = html;
   renderSidebar(r); renderTopbar();
   if (rk !== lastRouteKey) { window.scrollTo(0, 0); lastRouteKey = rk; }
 }
 function dispatch(r) {
+  if (CENTRAL) {
+    if (r[0] === 'admin') return isAdmin() ? pgAdmin(r[1] || 'users', r[2]) : pgDashboard();
+    if (App.profile === 'admin' && !['config', 'settings'].includes(r[0])) return pgAdmin('users');
+    if (isPM()) {
+      if (r[0] === 'dashboard' || !r[0]) return pgOrgDashboard();
+      if (r[0] === 'managers') return pgManagers();
+      if (r[0] === 'leadership') return pgOrgDashboard();
+    }
+  }
   switch (r[0]) {
     case 'dashboard': return pgDashboard();
     case 'upcoming': return pgUpcoming();
@@ -146,6 +176,42 @@ function dispatch(r) {
     default: return pgDashboard();
   }
 }
+
+/* ---------- view-only mode (people managers; organisation configuration for non-administrators) ----------
+   The server enforces access; this hides the editing controls so the screens read cleanly. */
+const WRITE_FN = /^\s*(?:closeDrawer\(\);\s*|closeModal\(\);\s*)?(?:edit|del|add|set(?!Timeout)|save|toggle|quickNote|upload|import|pickFiles|dismiss|reviewSuggestions|rv[A-Z]|analyse|growToAction|clear|restore|backup|prepareOne|agendaAI|qaMark|reset|placementDialog|exportUpwardSurvey|Files\.del)\w*\s*\(/;
+function roActive() {
+  if (!CENTRAL || !App.ready) return false;
+  const r0 = route()[0];
+  if (r0 === 'settings' || r0 === 'admin') return false;
+  if (isPM()) return true;
+  return r0 === 'config' && route()[1] !== 'questions' && !isAdmin();   // the 1:1 question bank is personal
+}
+function roSweep() {
+  const on = roActive();
+  document.body.classList.toggle('ro', on);
+  if (!on) return;
+  const roots = [$('#main'), $('#drawer-root')], modalRo = !$('#modal-root .ro-ok');
+  if (modalRo) roots.push($('#modal-root'));
+  for (const root of roots) {
+    if (!root) continue;
+    root.querySelectorAll('[onclick],[onchange],[oninput]').forEach(el => {
+      const h = el.getAttribute('onclick') || el.getAttribute('onchange') || el.getAttribute('oninput') || '';
+      if (!WRITE_FN.test(h)) return;
+      if (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) el.disabled = true;
+      else if (/^(BUTTON|A|LABEL)$/.test(el.tagName)) el.setAttribute('data-ro-hidden', '');
+      else { ['onclick', 'onchange', 'oninput'].forEach(a => el.removeAttribute(a)); el.classList.remove('click'); }   // keep rows visible, just not clickable
+    });
+    root.querySelectorAll('input:not([type=hidden]),select,textarea,.dp-btn').forEach(el => {
+      if (el.closest('.ro-ok') || el.getAttribute('onchange') || el.getAttribute('oninput')) return;
+      el.disabled = true;
+    });
+  }
+  if (modalRo) $('#modal-root #msave')?.setAttribute('data-ro-hidden', '');
+}
+let roQueued = false;
+new MutationObserver(() => { if (!CENTRAL || roQueued) return; roQueued = true; requestAnimationFrame(() => { roQueued = false; roSweep(); }); })
+  .observe(document.body, { childList: true, subtree: true });
 
 /* ---------- page building blocks ---------- */
 const pageHead = (title, desc = '', actions = '', eyebrow = '') => `<div class="page-head"><div>${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${title}</h1>${desc ? `<p>${desc}</p>` : ''}</div>${actions ? `<div class="actions">${actions}</div>` : ''}</div>`;

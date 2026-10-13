@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /*
- * Team Desk — local server
+ * Team Desk — personal (single-manager) server. For the multi-user
+ * version see central.js.
  * ------------------------------------------------------------
  * Serves the Team Desk web app on http://localhost and stores all
  * data, encrypted, in a folder the manager chooses at first launch.
@@ -21,10 +22,12 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const {
+  ROOT, HttpError, fail, readJSON, exists, localDay, localTime, deriveKey, encryptWith, decryptWith, packFile, unpackFile,
+  writeAtomic, listTde, readBody, sendJSON, sendFile, serveStatic, makeRouter, AI_DEFAULT_URL, loopbackUrl, aiStatus, aiChat, SCRYPT_PARAMS, MAGIC,
+} = require('./lib/shared');
 
-const VERSION = '3.3.0';
-const ROOT = path.resolve(__dirname, '..');
-const APP_DIR = path.join(ROOT, 'app');
+const VERSION = '4.0.1';
 const args = process.argv.slice(2);
 const argVal = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] ? args[i + 1] : d; };
 const NO_OPEN = args.includes('--no-open') || process.env.TEAMDESK_NO_OPEN === '1';
@@ -32,8 +35,6 @@ const BASE_PORT = parseInt(argVal('--port', process.env.TEAMDESK_PORT || '4317')
 const CONFIG_DIR = process.env.TEAMDESK_CONFIG_DIR || path.join(os.homedir(), '.teamdesk');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const TOKEN = crypto.randomBytes(24).toString('hex');
-const SCRYPT_PARAMS = { N: 1 << 15, r: 8, p: 1 };
-const MAGIC = Buffer.from('TDE1');
 const VERIFY = Buffer.from('teamdesk-vault-ok');
 const ID_RX = /^[A-Za-z0-9_-]{1,80}$/;
 const JSON_LIMIT = 25 * 1024 * 1024;
@@ -50,37 +51,12 @@ let snapshotDay = null;
 let dataRev = 1;  // bumped when data is changed from outside the browser (demo loader, restore)
 
 /* ---------------------------------------------------------- helpers */
-function readJSON(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } }
 function saveConfig() { fs.mkdirSync(CONFIG_DIR, { recursive: true }); fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2)); }
-class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
-const fail = (s, m) => { throw new HttpError(s, m); };
 const checkId = id => { if (!ID_RX.test(String(id || ''))) fail(400, 'Invalid id'); return String(id); };
-const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const localTime = (d = new Date()) => `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
-const exists = p => { try { fs.accessSync(p); return true; } catch { return false; } };
 
-/* ---------------------------------------------------------- crypto */
-function deriveKey(password, salt, params = SCRYPT_PARAMS) {
-  return new Promise((res, rej) => crypto.scrypt(String(password).normalize('NFKC'), salt, 32,
-    { N: params.N, r: params.r, p: params.p, maxmem: 256 * 1024 * 1024 }, (e, k) => e ? rej(e) : res(k)));
-}
-function encrypt(buf, k = key) {
-  if (!k) fail(423, 'locked');
-  const iv = crypto.randomBytes(12);
-  const c = crypto.createCipheriv('aes-256-gcm', k, iv);
-  const ct = Buffer.concat([c.update(buf), c.final()]);
-  return Buffer.concat([MAGIC, iv, c.getAuthTag(), ct]);
-}
-function decrypt(buf, k = key) {
-  if (!k) fail(423, 'locked');
-  if (buf.length < 32 || !buf.subarray(0, 4).equals(MAGIC)) fail(500, 'File is not a Team Desk encrypted file');
-  const d = crypto.createDecipheriv('aes-256-gcm', k, buf.subarray(4, 16));
-  d.setAuthTag(buf.subarray(16, 32));
-  return Buffer.concat([d.update(buf.subarray(32)), d.final()]);
-}
-/* attachment = [4-byte meta length][meta JSON][raw bytes] */
-function packFile(meta, data) { const m = Buffer.from(JSON.stringify(meta)); const h = Buffer.alloc(4); h.writeUInt32BE(m.length); return Buffer.concat([h, m, data]); }
-function unpackFile(buf) { const n = buf.readUInt32BE(0); return { meta: JSON.parse(buf.subarray(4, 4 + n).toString()), data: buf.subarray(4 + n) }; }
+/* ---------------------------------------------------------- crypto (key = the unlocked vault key) */
+const encrypt = (buf, k = key) => encryptWith(k, buf);
+const decrypt = (buf, k = key) => decryptWith(k, buf);
 
 /* ---------------------------------------------------------- data folder layout */
 const dataDir = () => config.dataDir;
@@ -111,14 +87,7 @@ Do not edit or rename files here. To move the data, use Settings > Data & backup
 in Team Desk. If you forget the password, the data cannot be recovered.
 `;
 
-async function writeAtomic(file, buf) {
-  await fsp.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${crypto.randomBytes(4).toString('hex')}`;
-  await fsp.writeFile(tmp, buf);
-  await fsp.rename(tmp, file);
-}
 async function writeEnc(file, buf) { await maybeSnapshot(); await writeAtomic(file, encrypt(buf)); }
-async function listTde(dir) { try { return (await fsp.readdir(dir)).filter(f => f.endsWith('.tde')); } catch { return []; } }
 
 /* ---------------------------------------------------------- vault */
 async function createVault(dir, password) {
@@ -244,14 +213,12 @@ async function listDir(p) {
 }
 
 /* ---------------------------------------------------------- API routes */
-const routes = [];
-const route = (method, pattern, handler, opts = {}) =>
-  routes.push({ method, rx: new RegExp('^' + pattern.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), handler, auth: true, unlocked: false, raw: false, ...opts });
+const { route, match } = makeRouter({ auth: true, unlocked: false, raw: false });
 
 route('GET', '/api/ping', () => ({ app: 'teamdesk', version: VERSION }), { auth: false });
 
 route('GET', '/api/status', () => ({
-  app: 'teamdesk', version: VERSION, configured: configured(), dataDir: dataDir() || null, unlocked: !!key,
+  app: 'teamdesk', mode: 'local', version: VERSION, configured: configured(), dataDir: dataDir() || null, unlocked: !!key,
   autoLockMinutes: config.autoLockMinutes ?? 15, platform: process.platform, home: os.homedir(), sep: path.sep, node: process.version, dataRev,
 }));
 route('POST', '/api/data/changed', () => { dataRev++; return { dataRev }; }, { unlocked: true });
@@ -339,9 +306,7 @@ route('GET', '/api/files/:owner/:id', async ({ params, res }) => {
   const f = P.file(params.owner, params.id);
   if (!exists(f)) fail(404, 'File not found');
   const { meta, data } = unpackFile(decrypt(await fsp.readFile(f)));
-  res.writeHead(200, { 'Content-Type': meta.type || 'application/octet-stream', 'Content-Length': data.length, 'Cache-Control': 'no-store',
-    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(meta.name)}` });
-  res.end(data);
+  sendFile(res, meta, data);
 }, { unlocked: true });
 route('DELETE', '/api/files/:owner/:id', async ({ params }) => { await fsp.rm(P.file(params.owner, params.id), { force: true }); return { ok: true }; }, { unlocked: true });
 
@@ -368,25 +333,8 @@ route('POST', '/api/folder/open', async ({ body }) => {
 });
 
 /* ---------- local AI (Ollama) — the server talks to it, the browser never does ---------- */
-const AI_DEFAULT_URL = 'http://127.0.0.1:11434';
 const aiCfg = () => ({ enabled: false, url: AI_DEFAULT_URL, model: '', ...(config.ai || {}) });
-function loopbackUrl(u) {
-  let x; try { x = new URL(String(u)); } catch { fail(400, 'Invalid AI address'); }
-  if (!['http:', 'https:'].includes(x.protocol) || !['127.0.0.1', 'localhost', '[::1]', '::1'].includes(x.hostname))
-    fail(400, 'For privacy, the AI address must be on this computer (localhost / 127.0.0.1).');
-  return x.origin;
-}
-async function ollama(pathname, body, timeoutMs) {
-  const r = await fetch(aiCfg().url + pathname, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(timeoutMs) });
-  if (!r.ok) { let m = `${r.status}`; try { m = (await r.json()).error || m; } catch {} throw new HttpError(502, `Local AI error: ${m}`); }
-  return r.json();
-}
-route('GET', '/api/ai/status', async () => {
-  const c = aiCfg();
-  try { const t = await ollama('/api/tags', null, 2500); return { ...c, available: true, models: (t.models || []).map(m => ({ name: m.name, size: m.size, family: m.details?.family || '', params: m.details?.parameter_size || '' })) }; }
-  catch (e) { return { ...c, available: false, models: [], error: e.name === 'TimeoutError' ? 'Ollama did not respond' : 'Ollama is not running on this computer' }; }
-}, { unlocked: true });
+route('GET', '/api/ai/status', () => aiStatus(aiCfg()), { unlocked: true });
 route('PUT', '/api/ai/config', ({ body }) => {
   const c = aiCfg();
   if (body.url !== undefined) c.url = loopbackUrl(body.url || AI_DEFAULT_URL);
@@ -394,18 +342,7 @@ route('PUT', '/api/ai/config', ({ body }) => {
   if (body.enabled !== undefined) c.enabled = !!body.enabled;
   config.ai = c; saveConfig(); return c;
 }, { unlocked: true });
-route('POST', '/api/ai/chat', async ({ body }) => {
-  const c = aiCfg();
-  if (!c.enabled || !c.model) fail(409, 'Local AI is turned off. Turn it on in Settings › AI assistant.');
-  const sys = String(body.system || '').slice(0, 8000), prompt = String(body.prompt || '').slice(0, 24000);
-  const t0 = Date.now();
-  let out;
-  try {
-    out = await ollama('/api/chat', { model: c.model, stream: false, format: 'json', keep_alive: '10m', options: { temperature: 0.2, num_ctx: 8192 },
-      messages: [{ role: 'system', content: sys }, { role: 'user', content: prompt }] }, 240000);
-  } catch (e) { if (e.status) throw e; fail(502, e.name === 'TimeoutError' ? 'The local AI took too long to answer. Try a smaller model.' : 'Could not reach Ollama. Is it running?'); }
-  return { content: out.message?.content || '', model: c.model, ms: Date.now() - t0 };
-}, { unlocked: true, limit: 256 * 1024 });
+route('POST', '/api/ai/chat', ({ body }) => aiChat(aiCfg(), body), { unlocked: true, limit: 256 * 1024 });
 
 route('POST', '/api/shutdown', ({ res }) => {
   res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}');
@@ -414,26 +351,13 @@ route('POST', '/api/shutdown', ({ res }) => {
 });
 
 /* ---------------------------------------------------------- HTTP plumbing */
-function readBody(req, limit) {
-  return new Promise((resolve, reject) => {
-    const chunks = []; let n = 0;
-    req.on('data', c => { n += c.length; if (n > limit) { reject(new HttpError(413, 'That is too large to save.')); req.destroy(); } else chunks.push(c); });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-function sendJSON(res, status, obj) {
-  const b = Buffer.from(JSON.stringify(obj));
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': b.length, 'Cache-Control': 'no-store' });
-  res.end(b);
-}
 async function handleApi(req, res, url) {
-  const r = routes.find(x => x.method === req.method && x.rx.test(url.pathname));
-  if (!r) fail(404, 'Not found');
+  const m = match(req.method, url.pathname);
+  if (!m) fail(404, 'Not found');
+  const { r, params } = m;
   if (r.auth && req.headers['x-td-token'] !== TOKEN) fail(401, 'Missing or invalid token. Reload the page.');
   if (r.unlocked && (!key || !configured())) fail(423, 'locked');
   if (r.auth && url.pathname !== '/api/status') lastActivity = Date.now();
-  const params = url.pathname.match(r.rx).groups || {};
   let raw = null, body = {};
   if (['POST', 'PUT'].includes(req.method)) {
     raw = await readBody(req, r.limit || 1024 * 1024);
@@ -443,44 +367,14 @@ async function handleApi(req, res, url) {
   if (!res.headersSent) sendJSON(res, 200, out ?? { ok: true });
 }
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2', '.map': 'application/json' };
-const SEC_HEADERS = {
-  'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-cache',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; " +
-    "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://cdnjs.cloudflare.com; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-};
-const VENDOR = {
-  'pdf.min.js': ['pdfjs-dist', 'build', 'pdf.min.js'],
-  'pdf.worker.min.js': ['pdfjs-dist', 'build', 'pdf.worker.min.js'],
-  'mammoth.browser.min.js': ['mammoth', 'mammoth.browser.min.js'],
-  'xlsx.full.min.js': ['xlsx', 'dist', 'xlsx.full.min.js'],
-};
-async function serveStatic(req, res, url) {
-  if (!['GET', 'HEAD'].includes(req.method)) fail(405, 'Method not allowed');
-  let file;
-  if (url.pathname.startsWith('/vendor/')) {
-    const v = VENDOR[path.basename(url.pathname)];
-    file = v && path.join(ROOT, 'node_modules', ...v);
-    if (!file || !exists(file)) fail(404, 'Not installed');
-  } else {
-    const rel = decodeURIComponent(url.pathname) === '/' ? 'index.html' : decodeURIComponent(url.pathname).replace(/^\/+/, '');
-    file = path.resolve(APP_DIR, rel);
-    if (!file.startsWith(APP_DIR + path.sep)) fail(403, 'Forbidden');
-    if (!exists(file) || fs.statSync(file).isDirectory()) fail(404, 'Not found');
-  }
-  let data = await fsp.readFile(file);
-  if (path.basename(file) === 'index.html') data = Buffer.from(data.toString().replace('__TD_TOKEN__', TOKEN).replace(/__TD_VERSION__/g, VERSION));
-  res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Content-Length': data.length });
-  res.end(req.method === 'HEAD' ? undefined : data);
-}
+const injectIndex = html => html.replace('__TD_TOKEN__', TOKEN).replace('__TD_MODE__', 'local').replace(/__TD_VERSION__/g, VERSION);
 
 const server = http.createServer(async (req, res) => {
   try {
     if (!ALLOWED_HOSTS.has(String(req.headers.host || '').toLowerCase())) { res.writeHead(403); return res.end('Forbidden'); }
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
-    else await serveStatic(req, res, url);
+    else await serveStatic(req, res, url, injectIndex);
   } catch (e) {
     const status = e.status || (e.code === 'ERR_CRYPTO_INVALID_AUTH_TAG' || /auth/i.test(e.message) ? 500 : 500);
     if (!e.status) console.error(e);

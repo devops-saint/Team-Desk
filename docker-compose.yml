@@ -1,0 +1,27 @@
+# Team Desk — central server
+#   docker compose up -d          start
+#   docker compose logs -f        see the address and first-run messages
+#   docker compose exec teamdesk node server/central.js --reset-password admin@company.com --make-admin
+#
+# Two volumes: the encrypted data, and the server key that decrypts it.
+# Back up BOTH, and keep the key backup separate from the data backup.
+services:
+  teamdesk:
+    build: .
+    image: teamdesk:4.0.1
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Behind an HTTPS reverse proxy (recommended): trust its X-Forwarded-* headers
+      TEAMDESK_TRUST_PROXY: "1"
+      # Optional: only answer to your own host name(s)
+      # TEAMDESK_ALLOWED_HOSTS: "teamdesk.company.com"
+      # Optional: an Ollama server for the AI assistant (otherwise localhost inside the container)
+      # TEAMDESK_AI_URL: "http://ollama:11434"
+    volumes:
+      - teamdesk-data:/data
+      - teamdesk-secrets:/secrets
+volumes:
+  teamdesk-data:
+  teamdesk-secrets:

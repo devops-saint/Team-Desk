@@ -1,6 +1,6 @@
 # Team Desk — Demo Script
 
-**Version:** 3.3 · **Full demo:** about 25 minutes · **Short demo:** 8 minutes (see the end)
+**Version:** 4.0 · **Full demo:** about 25 minutes · **Central server part:** 10 minutes (Part 2) · **Short demo:** 8 minutes (see the end)
 
 How to use this script:
 
@@ -319,6 +319,12 @@ How to use this script:
 **SAY:**
 > "At cycle end, everything comes together automatically: goal completion, competency average, KPI score, 1:1 count and morale, feedback log, and development completed. I write the rating and comments, and print it or save it as PDF."
 
+**DO:** Click **Report** at the top of the reportee's page. Show the three formats, the period and the section ticks. Download the **PDF** and open it.
+
+**SAY:**
+> "Many times HR or my skip-level asks: 'Send me everything about Asha before the promotion discussion.' Earlier, that was one hour of copy-paste. Now: **Report**. PDF, Word or Excel, my choice. Last 12 months, or one review cycle. I tick the sections I want to share.
+> See this box: 'Include private notes'. By default it is **off**, so my private notes never go out by mistake. And the report has only Asha's data, nobody else's. Confidential footer and page numbers on every page."
+
 **DO:** Go to **Insights › Calibration**.
 
 **SAY:**
@@ -397,6 +403,101 @@ How to use this script:
 
 ---
 
+# Part 2 — Team Desk for the whole organisation (central server, about 10 minutes)
+
+Use this when the audience is HR, leadership or IT, and you want to show Team Desk running for many managers.
+
+## Before the demo (5 minutes of preparation)
+
+1. **Use a separate demo server, not the real one.** On your laptop, start one with its own folder and key:
+   `node server/central.js --port 8090 --data ~/teamdesk-demo-data --key-file ~/teamdesk-demo.key`
+   (or double-click **`Start Team Desk Server`**, which uses port 8080).
+2. **Load the demo accounts and data:** run `node scripts/seed-central.js --url http://localhost:8090` (or double-click **`Load Central Demo Data`** for port 8080). Every demo password is **`TeamDesk@Demo1`**.
+
+   | Account | Group | What it shows |
+   |---|---|---|
+   | `anita.desai@demo.example` | Line manager + People manager + Administrator | Profile choice after sign-in, administration. Owns Asha, Rohan and Neha |
+   | `kavya.menon@demo.example` | Line manager | Sees only her team: Priya, Vikram and Arjun |
+   | `meera.pillai@demo.example` | People manager (HR) | Sees all six reportees, view only |
+   | `rahul.verma@demo.example` | Registered, not approved | The approval flow |
+
+3. Open two browser windows: one normal, one private/incognito. That way you can be signed in as two people at the same time.
+
+> After the demo: `node scripts/seed-central.js --url http://localhost:8090 --remove`, then stop the server and delete the demo folder and key.
+
+## P1. Why a central version (1 minute)
+
+**SAY:**
+> "So far you saw Team Desk on one manager's laptop. But in an organisation we have many managers, and HR or the delivery head also needs a view across teams. So the same Team Desk runs on a company server. Everybody signs in with their own account. And the rule is very simple: **a line manager sees only their own people, a people manager sees everybody but cannot change anything, and an administrator approves who gets in.**"
+
+## P2. Registration and approval (1.5 minutes)
+
+**DO:** Open the server address. Show the **Sign in** screen, click **Register**, show the form (name, work email, password, "I need access as").
+
+**SAY:**
+> "A new manager registers once with their work email. They can say 'I need line manager access' or 'people manager access', but they don't get it automatically. Until an administrator approves, they cannot sign in. And the admin can restrict registration to our company email domain only."
+
+**DO:** Sign in as **Anita**. She gets the **profile choice**. Choose **Line manager**. Then open **Administration › Users & access**. Rahul is waiting. Click **Approve**, tick **Line manager**, then **Approve**.
+
+**SAY:**
+> "Anita is a delivery head, so she is in both groups. After login, Team Desk asks her: today, do you want to work as a line manager with your own team, or as a people manager across teams? She can switch any time from the sidebar.
+> Here Rahul is waiting. I approve him as a line manager. Done. Now he can sign in and add his reportees."
+
+## P3. Line manager: only my team (1.5 minutes)
+
+**DO:** In the private window, sign in as **Kavya**. Show **Reportees**: only Priya, Vikram and Arjun.
+
+**SAY:**
+> "Kavya is a line manager. She sees only her three people: Priya, Vikram and Arjun. Asha, Rohan and Neha are Anita's team. Kavya cannot see them, not even in search. This is checked on the server itself, not just hidden on screen. Even if somebody tries a direct link, the server refuses.
+> Everything else, like 1:1s, competencies, suggestions and reports, works exactly the same as I showed before."
+
+**DO:** Open **Configuration › Roles & KPIs**. Point to the "view only" message.
+
+**SAY:**
+> "The competency framework, roles and KPIs are the same for the whole organisation, so only administrators can change them. Managers see them as view only. But each manager can still change their own 1:1 question bank."
+
+## P4. People manager: the organisation view (2.5 minutes)
+
+**DO:** Sign Kavya out. Sign in as **Meera**. Show the **Organisation** dashboard.
+
+**SAY:**
+> "Meera is our HR business partner, a people manager. Her first screen is the **organisation view**: how many 1:1s are happening on schedule, competency assessments done, flight risk, who is ready for promotion. And **Teams at a glance**: each line manager's team in one row, with overdue actions and urgent items. If one manager's 1:1s are slipping, HR can see it here and have a conversation."
+
+**DO:** Click Anita's row, then open **Rohan Kulkarni**. Point to the **View only** banner and the missing edit buttons. Open **Talent & retention**: the fields are locked.
+
+**SAY:**
+> "Meera can open anybody's full record: 1:1s, competencies, goals, improvement plan. But see the banner: **view only**. No edit buttons, no Log 1:1. The record belongs to the line manager. If she tries anything, the server rejects it.
+> One more important thing: the line manager's **private notes** are not shown to people managers. Rohan's manager wrote something personal in a 1:1, and Meera does not see it. If the company wants HR to see private notes also, the administrator can switch that on. Then the label on the manager's screen changes, so managers always know who can read what."
+
+**DO:** Click **Download report**, then download a PDF.
+
+**SAY:**
+> "And for promotion panels or skip-levels, Meera downloads the same report: PDF, Word or Excel."
+
+## P5. Administration: moves, audit and security (2 minutes)
+
+**DO:** In Anita's window, go to **Administration › Reportee ownership**. Tick **Arjun Mehta**, choose **Anita Desai**, then **Move**.
+
+**SAY:**
+> "When somebody changes team, or a manager leaves, the admin moves the reportee to the new line manager here. The **full history goes with the person**: all the 1:1s, ratings, goals. The old manager loses access immediately. Nothing is lost and nothing is retyped."
+
+**DO:** Open **Audit log**.
+
+**SAY:**
+> "Everything sensitive is recorded here: who signed in, failed logins, who approved whom, password resets, ownership moves. And also every time a **people manager viewed** a reportee or **downloaded a report**. So if anybody asks 'who looked at my record?', we have the answer."
+
+**DO:** Open **Server settings**.
+
+**SAY:**
+> "And the security basics: registration open or closed, allowed email domains, auto sign-out after inactivity, and backups. All data on the server is **encrypted**, and passwords are stored only as secure hashes. The server key is kept separately from the data. IT can run it on our own server or in Docker, behind HTTPS. Nothing goes to any outside cloud."
+
+## P6. Closing for the central version (30 seconds)
+
+**SAY:**
+> "So: the same Team Desk for every manager. Strict privacy between teams. A view-only window for HR and leadership. Admin control with a full audit trail. And one-click reports in PDF, Word or Excel. Thank you!"
+
+---
+
 ## Likely questions and simple answers
 
 | Question | Answer |
@@ -407,7 +508,12 @@ How to use this script:
 | Will the AI take decisions automatically? | Never. Every suggestion needs my review and acceptance. |
 | Can reportees see this? | No. It is a manager-only tool. Each person's data is in a separate file, and exports contain only that person. |
 | What if I forget the password? | There is no reset, which is by design for security. Keep it in a password manager. |
-| Can other managers use it? | Yes. Each manager runs their own copy with their own data folder. Code and data are separate; the code is in git and the data is never committed. |
+| Can other managers use it? | Yes, in two ways. Each manager can run their own personal copy, or the organisation runs the **central server**, where everybody signs in and sees only their own team. |
+| In the central version, can one manager see another manager's team? | No. The server only sends a line manager their own reportees. Only people managers (HR or leadership) can see across teams, and they can't change anything. |
+| Who decides who is a people manager? | The administrator, when approving the account. Every approval and group change is in the audit log. |
+| Can HR read my private notes? | Not by default. The administrator can allow it, and then the label on your screen says so. |
+| What happens when a manager leaves? | The admin disables their account and moves their reportees to the new manager, with full history. |
+| Where is the data in the central version? | On the company server, encrypted, with the key kept separately. IT backs up both. |
 | Does it work on Windows? | Yes. Same folder; double-click `Start Team Desk.bat`. Needs Node.js 18 or newer. |
 | What if the competency matrix changes? | Upload the new Excel; existing ratings are kept, matched by competency code. |
 | Can I take a backup? | Automatic daily snapshots for 30 days, plus "Back up now". The whole data folder can also be copied, since it stays encrypted. |
@@ -425,6 +531,13 @@ If time is less, cover only these:
 4. **Suggested actions** (2 min): the review window, then accept.
 5. **Competencies + org-format Excel download** (1 min).
 6. **Closing summary** (1 min).
+
+**Central server in 4 minutes:**
+
+1. Sign in as Anita and show the profile choice (30 s).
+2. Kavya sees only her team (1 min).
+3. Meera's organisation view and a view-only record (1.5 min).
+4. Approve Rahul and show the audit log (1 min).
 
 ---
 

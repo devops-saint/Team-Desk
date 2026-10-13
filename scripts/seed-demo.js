@@ -243,9 +243,10 @@ function buildDemo(org) {
   {
     const p = pid('rohan');
     people.push({ id: p, grade: 'C3', roleId: roles.eng.id, created: M(5, 2),
-      profile: { name: 'Rohan Kulkarni', empId: 'DEMO-0954', designation: 'Data Engineer', team: 'Retail Analytics – ingestion', location: 'Hyderabad', workMode: 'Hybrid', doj: M(40, 2), since: M(12, 1), exp: '4', cadence: 'Weekly', education: 'B.E. Electronics' },
+      profile: { name: 'Rohan Kulkarni', empId: 'DEMO-0954', designation: 'Data Engineer', team: 'Retail Analytics – ingestion', location: 'Hyderabad', workMode: 'Hybrid', doj: M(40, 2), since: M(12, 1), exp: '4', cadence: 'Weekly', education: 'B.E. Electronics', personal: 'Caring for a parent at the moment; prefers early-start days.' },
       oneOnOnes: [3, 2, 1, 0].map((k, i) => one(p, i + 1, { date: k === 0 ? weekday(D(-8), -1) : M(k, 14), morale: ['3', '2', '3', '3'][i], updates: ['Ingestion jobs delivered late again', 'Agreed improvement plan', 'Two sprint commitments met', 'Improving; code reviews better'][i],
         concerns: i === 1 ? 'Feels the estimates were not realistic' : '',
+        private: i === 1 ? 'Mentioned his father’s hospital stay in passing — may explain some of the late evenings. Do not raise unless he does.' : '',
         qa: { project: { pj_status: ['Off track', 'Some risks', 'On track', 'On track'][i] }, wellbeing: { wb_score: ['3', '2', '3', '3'][i] }, admin: { ad_mandatory: i === 3 ? 'Some pending' : 'All up to date' } },
         actions: i === 3 ? [act(p, 1, 'Pair with Vikram on the next design review', 'them', D(7), false)] : [] })),
       goals: [{ id: `${p}-g1`, title: 'Meet sprint commitments for 3 consecutive sprints', category: 'Business', cycle: CK, weight: '60', due: D(15), status: 'At risk', progress: 50, updates: [] },
@@ -341,8 +342,10 @@ function buildDemo(org) {
   return { CK, roles: Object.values(roles), guideline, leadSelf, upward, people };
 }
 
+module.exports = { buildDemo, PREFIX };
+
 /* ---------------- main ---------------- */
-(async () => {
+if (require.main === module) (async () => {
   c('\nTeam Desk — demo data loader\n');
   const major = parseInt(process.versions.node, 10);
   if (major < 18) { bad(`Node.js 18 or newer is needed (you have ${process.version}).`); process.exit(1); }

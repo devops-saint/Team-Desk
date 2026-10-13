@@ -1,0 +1,21 @@
+# keep data, secrets and clutter out of the image
+.git
+node_modules
+TeamDesk Data
+teamdesk-central-data
+*.tde
+*.key
+*.pem
+*.crt
+*.log
+backups
+audit
+TeamDesk_export_*.json
+*.xlsx
+*.docx
+*.pdf
+*.csv
+*.zip
+.DS_Store
+*.command
+*.bat
