@@ -26,11 +26,18 @@ const DEFAULT_SKILLS = [
   ['Testing & Data Quality', 'Engineering'], ['BI & Reporting', 'Analytics'], ['Domain / Industry Knowledge', 'Functional'],
 ];
 const DEFAULT_SCALE = [
-  { v: '1', label: 'Developing – below grade expectation' },
-  { v: '2', label: 'Meets grade expectation' },
-  { v: '3', label: 'Exceeds – working above grade' },
+  { v: '1', label: 'Well below grade expectation' },
+  { v: '2', label: 'Developing – below grade expectation' },
+  { v: '3', label: 'Meets grade expectation' },
+  { v: '4', label: 'Exceeds – often working above grade' },
+  { v: '5', label: 'Outstanding – consistently at next-grade level' },
   { v: 'X', label: 'Not applicable / not demonstrated' },
 ];
+/* HR's original matrix template uses 1–3; Team Desk rates on 1–5. */
+const SCALE3_TO5 = { '1': '2', '2': '3', '3': '4' };
+const to3 = v => { const n = numVal(v); return n === null ? v : n <= 2 ? '1' : n === 3 ? '2' : '3'; };
+const SCALE3_LABELS = [['1', 'Below grade expectation'], ['2', 'Meets grade expectation'], ['3', 'Exceeds grade expectation'], ['X', 'Not applicable']];
+const CADENCE_DAYS = { Weekly: 7, Fortnightly: 14, Monthly: 30 };
 const DEFAULT_DISTRIBUTION = { 1: 5, 2: 15, 3: 60, 4: 15, 5: 5 };
 
 /* 9-box: key = performance-potential */
@@ -104,6 +111,19 @@ function migrate(s) {
   s.roles.forEach(r => { r.kpis = r.kpis || []; r.skillTargets = r.skillTargets || {}; });
   s.guidelines.forEach(g => { g.owner = g.owner || ORG_OWNER; g.points = g.points || []; });
   if (s.framework === undefined) s.framework = d.framework;
+  if (s.framework && !s.framework.scaleMigrated) {
+    /* one-time move from the matrix's 1–3 scale to 1–5: 1→2 (below), 2→3 (meets), 3→4 (exceeds) */
+    const nums = (s.framework.scale || []).map(x => numVal(x.v)).filter(v => v !== null);
+    if (!nums.length || Math.max(...nums) <= 3) {
+      const xl = (s.framework.scale || []).find(x => x.v === 'X')?.label;
+      s.framework.scale = JSON.parse(JSON.stringify(DEFAULT_SCALE));
+      if (xl) s.framework.scale.find(x => x.v === 'X').label = xl;
+      s.framework.sourceScale = 3;
+      const conv = rec => { if (!rec || rec.scale === 5) return; Object.values(rec.items || {}).forEach(it => { for (const f of ['rating', 'self']) if (SCALE3_TO5[String(it[f])]) it[f] = SCALE3_TO5[String(it[f])]; }); rec.scale = 5; };
+      s.reportees.forEach(p => { Object.values(p.comp || {}).forEach(conv); Object.values(p.reviews || {}).forEach(r => conv(r.compSnapshot)); });
+    }
+    s.framework.scaleMigrated = true;
+  }
   if (s.framework && !s.framework.scale?.length) s.framework.scale = JSON.parse(JSON.stringify(DEFAULT_SCALE));
   const untouched = s.skills.length === OLD_DEFAULT_SKILLS.length && s.skills.every((k, i) => k.name === OLD_DEFAULT_SKILLS[i]);
   if (untouched && !s.reportees.some(p => Object.keys(p.skills).length)) s.skills = d.skills;
@@ -120,6 +140,15 @@ const nextOne = p => p.oneOnOnes.map(o => o.next).filter(d => d && d >= today())
 const activePip = p => p.pips.find(x => x.status === 'Active' || x.status === 'Extended');
 /* every action item for a person: those agreed in 1:1s (o = meeting) and standalone ones (o = null) */
 const personActions = p => [...p.oneOnOnes.flatMap(o => (o.actions || []).map(a => ({ ...a, o }))), ...(p.tasks || []).map(a => ({ ...a, o: null }))];
+/* birthdays, work anniversaries and probation end dates in the next `days` days */
+function nextOccurrence(iso) { const t = today(), y = +t.slice(0, 4); let d = `${y}${iso.slice(4)}`; if (iso.slice(5) === '02-29') d = `${y}-02-28`; if (d < t) d = `${y + 1}${iso.slice(4)}`; return d; }
+function milestones(p, days = 30) {
+  const t = today(), end = addDays(t, days), out = [], f = firstName(p.profile.name), pr = p.profile;
+  if (pr.dob) { const d = nextOccurrence(pr.dob); if (d <= end) out.push({ date: d, kind: 'birthday', icon: 'award', text: `${f}’s birthday` }); }
+  if (pr.doj) { const d = nextOccurrence(pr.doj), yrs = +d.slice(0, 4) - +pr.doj.slice(0, 4); if (yrs >= 1 && d <= end) out.push({ date: d, kind: 'anniversary', icon: 'award', text: `${f}’s ${yrs}-year work anniversary` }); }
+  if (pr.probationEnd && !pr.confirmed && pr.probationEnd >= t && pr.probationEnd <= end) out.push({ date: pr.probationEnd, kind: 'probation', icon: 'flag', text: `${f}’s probation ends` });
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
 const upcomingLeave = (p, days = 30) => (p.leaves || []).filter(l => l.status !== 'Cancelled' && (l.to || l.from) >= today() && l.from <= addDays(today(), days)).sort((a, b) => a.from.localeCompare(b.from));
 
 /* ---------- review cycles (half-years) ---------- */
@@ -158,14 +187,17 @@ const FW = () => S.framework;
 const scale = () => FW()?.scale?.length ? FW().scale : DEFAULT_SCALE;
 const numVal = v => (v !== '' && v != null && !isNaN(+v)) ? +v : null;
 const scaleNums = () => scale().map(s => numVal(s.v)).filter(v => v !== null);
-const lowV = () => Math.min(...scaleNums());
-const highV = () => Math.max(...scaleNums());
+const maxV = () => Math.max(...scaleNums());
+/* the middle of the scale means "meets grade expectation"; one below/above it is the threshold for below/above grade */
+const meetsV = () => { const n = [...new Set(scaleNums())].sort((a, b) => a - b); return n[Math.floor((n.length - 1) / 2)]; };
+const lowV = () => meetsV() - 1;
+const highV = () => meetsV() + 1;
 const scaleLabel = v => scale().find(s => s.v === String(v))?.label || '';
 const compByCode = code => FW()?.comps.find(c => c.code === code);
 const nextGrade = g => { const gs = FW()?.grades || []; const i = gs.indexOf(g); return i >= 0 && i < gs.length - 1 ? gs[i + 1] : null; };
 const hasRatings = rec => !!rec && Object.values(rec.items || {}).some(x => x.rating || x.self);
 const hasMgrRatings = rec => !!rec && Object.values(rec.items || {}).some(x => x.rating);
-function ensureComp(p, ck) { p.comp[ck] = p.comp[ck] || { grade: p.grade || '', items: {} }; if (!p.comp[ck].grade) p.comp[ck].grade = p.grade || ''; return p.comp[ck]; }
+function ensureComp(p, ck) { p.comp[ck] = p.comp[ck] || { grade: p.grade || '', items: {}, scale: 5 }; if (!p.comp[ck].grade) p.comp[ck].grade = p.grade || ''; return p.comp[ck]; }
 function compStats(rec, field = 'rating') {
   const vals = (FW()?.comps || []).map(c => rec?.items?.[c.code]?.[field]).filter(v => v != null && v !== '');
   const nums = vals.map(numVal).filter(v => v !== null);
@@ -181,6 +213,7 @@ function ratingStyle(v) {
   const n = numVal(v);
   if (n === null) return 'background:var(--mid-bg);color:var(--muted)';
   if (n <= lowV()) return 'background:var(--bad-bg);color:var(--bad)';
+  if (n >= maxV() && maxV() > highV()) return 'background:var(--accent);color:var(--accent-ink)';
   if (n >= highV()) return 'background:var(--soft);color:var(--accent)';
   return 'background:var(--good-bg);color:var(--good)';
 }
@@ -209,7 +242,11 @@ function focusAreas(p) {
   const out = [], t = today(), month = t.slice(0, 7), c = cycleOf();
   const add = (lvl, area, text, sec) => out.push({ lvl, area, text, sec });
   const ones = [...p.oneOnOnes].sort((a, b) => b.date.localeCompare(a.date));
-  if (!ones.some(o => o.date.startsWith(month))) {
+  const cad = CADENCE_DAYS[p.profile.cadence];
+  if (cad && cad < 30) {
+    const ds = ones[0] ? daysBetween(ones[0].date, t) : null;
+    if (ds === null || ds > cad + 2) add(ds === null || ds > cad * 2 ? 3 : 2, 'Connect', ones[0] ? `${p.profile.cadence} 1:1 overdue — last one was ${ds} days ago` : 'No 1:1 recorded yet — schedule the first one', 'meetings');
+  } else if (!ones.some(o => o.date.startsWith(month))) {
     const ds = ones[0] ? daysBetween(ones[0].date, t) : null;
     add(ds === null || ds > 45 ? 3 : 2, 'Connect', ones[0] ? `No 1:1 yet this month — last connect was ${ds} days ago` : 'No 1:1 recorded yet — schedule the first monthly connect', 'meetings');
   }
@@ -219,6 +256,12 @@ function focusAreas(p) {
   if (od.length) add(2, 'Follow-through', `${plural(od.length, 'overdue action item')}${od.some(a => a.owner === 'me') ? ' — some are yours' : ''}`, 'actions');
   if (!ones.some(o => (o.career || o.grow?.goal) && daysBetween(o.date, t) <= 90) && ones.length) add(1, 'Career', 'No career or coaching conversation in the last 90 days', 'meetings');
 
+  const pe = p.profile.probationEnd;
+  if (pe && !p.profile.confirmed) {
+    if (pe < t) add(3, 'Probation', `Probation ended ${fmt(pe)} — record the confirmation decision`, 'profile');
+    else if (daysBetween(t, pe) <= 30) add(2, 'Probation', `Probation ends ${fmt(pe)} (${relDays(pe)}) — prepare the confirmation review`, 'profile');
+  }
+  milestones(p, 7).filter(m => m.kind !== 'probation').forEach(m => add(1, 'Celebrate', `${m.text} — ${relDays(m.date)}`, 'profile'));
   const ns = (p.suggestions || []).filter(s => s.state === 'new');
   if (ns.length) add(ns.some(s => s.sev >= 3) ? 3 : 2, 'Suggestions', `${plural(ns.length, 'suggested action')} from 1:1s and documents to review${ns.some(s => s.sev >= 3) ? ' — some are urgent' : ''}`, 'suggestions');
   const lv = upcomingLeave(p, 21);
@@ -284,7 +327,9 @@ function leadershipMetrics(ck = cycleOf().key) {
   const m = (key, name, value, detail, good, warn, comp, tip, na = false) => M.push({ key, name, value, detail, comp, tip,
     status: na || value == null ? 'na' : value >= good ? 'good' : value >= warn ? 'warn' : 'bad' });
   if (!n) return M;
-  const slots = n * months.length, hit = ps.reduce((s, p) => s + months.filter(mo => p.oneOnOnes.some(o => o.date.startsWith(mo))).length, 0);
+  /* only count months since each person started reporting to you */
+  const monthsFor = p => { const from = [p.profile.since, p.profile.doj, p.created].filter(Boolean).sort().pop()?.slice(0, 7) || ''; return months.filter(mo => mo >= from); };
+  const slots = ps.reduce((s, p) => s + monthsFor(p).length, 0), hit = ps.reduce((s, p) => s + monthsFor(p).filter(mo => p.oneOnOnes.some(o => o.date.startsWith(mo))).length, 0);
   m('coverage', '1:1 coverage', slots ? hit / slots * 100 : null, `${hit} of ${slots} monthly 1:1s held this cycle`, 90, 70, 'trust', 'Hold a 1:1 with every reportee every month.');
   const mine = ps.flatMap(p => personActions(p).filter(a => a.owner === 'me' && a.due && a.due <= t && inCycle(a.due, c)));
   const onTime = mine.filter(a => a.done && (!a.doneOn || a.doneOn <= a.due)).length;

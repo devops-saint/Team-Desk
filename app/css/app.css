@@ -386,3 +386,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--soft-2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px;margin-right:4px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:900px){.qa-wrap{grid-template-columns:1fr}.qa-nav{flex-direction:row;overflow-x:auto;max-height:none;border-right:0;border-bottom:1px solid var(--line)}.qa-nav button{white-space:nowrap}.qa-nav>.xs{display:none}.sug{grid-template-columns:22px 1fr}.sug-ctl{grid-column:2}}
+.search-results{min-width:440px;right:auto}
+.search-results mark{padding:0 1px}
+@media (max-width:900px){.search-results{min-width:0;right:0}}
+@media (max-width:900px){.topbar{gap:8px}.topbar .lbl,.savestate .txt{display:none}.topbar .btn{padding:0 10px}}

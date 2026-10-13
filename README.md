@@ -1,4 +1,4 @@
-# Team Desk 3.1
+# Team Desk 3.3
 
 A private, encrypted workspace for managing your reportees: 1:1s, your organisation's competency matrix, technical skills, KPIs, goals, development plans, talent and retention, improvement plans, half-yearly reviews and calibration, plus tools for assessing your own leadership.
 
@@ -86,6 +86,13 @@ npm install
   - Anonymous upward feedback: download a questionnaire, share it with your team, then import their response files. Results show only after at least 3 responses.
 - **Configuration:** competency framework (your matrix is built in), roles and KPI uploads, technical skills list, and organisation guidelines with search.
 - **Dates:** every date field opens a calendar picker.
+- **Rating scale:** competencies are rated **1–5** (3 = meets the grade's expectation, 5 = role model), plus **X** for "not applicable". Data from older versions on the 1–3 scale is converted automatically the first time you unlock (1→2, 2→3, 3→4). If HR's template uses 1–3, Team Desk converts it on import, and on export you can choose to keep 1–5 or convert back to 1–3. The 9-box stays a 3×3 grid by design.
+- **Quick note:** the **Quick note** button in the top bar, or on any reportee, records an observation in 10 seconds. It goes into that person's feedback log, with an optional follow-up action.
+- **Search inside notes:** the top search finds people and also words inside 1:1 notes, feedback and documents. Click a result to open the exact meeting.
+- **1:1 frequency:** set a weekly, fortnightly or monthly cadence per reportee in their profile. "Overdue for a 1:1" alerts follow it.
+- **Milestones:** birthdays, work anniversaries and probation end dates show on the dashboard and in Upcoming. Probation reviews that are due raise an alert.
+- **Team report:** Insights › Team report gives a monthly summary for your own manager: 1:1 coverage, goals, people processes, highlights, org contributions and next month's leave. Names can be hidden. It can be printed.
+- **One-page summary:** on a reportee's profile, prints a single page about them. Private notes, flight risk and improvement plan details are left out.
 - **Intelligence:** suggested actions from 1:1s and documents, optional local AI, a guided 1:1 question bank, a prepare-next-1:1 agenda, and leave tracking (see section 7).
 
 ## 7. Intelligence: suggested actions, guided 1:1s and leave
@@ -140,15 +147,35 @@ Record leave per reportee from their **Leave & availability** page, or from the 
 - **Team leave:** Upcoming › Team leave shows everyone's leave for the next 90 days and who overlaps.
 - **Clash warnings:** Team Desk warns when leave clashes with a goal's due date.
 
-## 8. Coming from the browser-only version (v1/v2)
+## 8. Demo data (for presentations)
+
+To demo every feature without typing data in, load six fictional reportees (grades A2, C1, C2, C3, S1 and S2) with months of history:
+
+1. Start Team Desk and **switch to an empty demo data folder**: Settings › Data & backups › Open a different data folder.
+2. While Team Desk is running, double-click **`Load Demo Data.command`** (Mac) or **`Load Demo Data.bat`** (Windows), or run `npm run demo`.
+3. The open browser tab refreshes by itself within about 10 seconds.
+
+To remove it again, run `npm run demo:remove` (or `node scripts/seed-demo.js --remove`).
+
+How it behaves:
+
+- It talks only to the Team Desk running on this computer.
+- If Team Desk is locked, it asks for your password in the terminal.
+- It takes a backup snapshot before writing anything.
+- It refuses to run on a folder that already has real reportees, unless you pass `--force`.
+- Running it again resets the demo reportees to their original state.
+
+The full walkthrough is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+
+## 9. Coming from the browser-only version (v1/v2)
 
 In the old `TeamDesk.html`, go to **Settings › Export backup**. Then in Team Desk 3, use the import option during set-up, or **Settings › Data & backups › Import backup file**.
 
-## 9. Updating Team Desk
+## 10. Updating Team Desk
 
 Replace this program folder with the new version. Your data folder is separate and is never touched by an update. Team Desk remembers which data folder to use in `~/.teamdesk/config.json`.
 
-## 10. Keeping the code in git
+## 11. Keeping the code in git
 
 The repository should contain **only the program**, never your data. Two files take care of this:
 
@@ -170,7 +197,7 @@ git status --ignored --short   # lines starting with !! are ignored
 
 `app/js/framework-default.js` contains your organisation's competency matrix, built in as the default. If the repository will be shared outside your organisation, remove that file or make the repository private. Team Desk works without it: you then upload the matrix under **Configuration › Competency framework**.
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 - **"Team Desk server isn't running"**: start it with the launcher, then reload the page.
 - **Port already in use**: Team Desk automatically tries the next ports (4318, 4319, …). The terminal window shows the address it's using.

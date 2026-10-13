@@ -67,7 +67,7 @@ const Store = {
     S = { ...org, reportees: d.reportees || [] };
     migrate(S);
     this.prime();
-    if (!d.org) this.save();
+    if (!d.org) { this.cache.org = null; this.save(); }  // first run: write the defaults to disk
   },
   prime() {
     const { reportees, ...org } = S;

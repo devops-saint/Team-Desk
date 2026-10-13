@@ -11,6 +11,7 @@ async function startApp() {
   await Store.load();
   applyTheme();
   App.ready = true;
+  App.dataRev = App.status?.dataRev;
   $('#gate').innerHTML = '';
   $('#shell').hidden = false;
   render();
@@ -29,12 +30,23 @@ function startHousekeeping() {
   let lastPing = 0;
   const touch = () => { if (Date.now() - lastPing > 60000 && App.ready && !$('#gate').innerHTML) { lastPing = Date.now(); api('POST', '/api/activity').catch(() => {}); } };
   ['mousedown', 'keydown', 'wheel', 'touchstart'].forEach(e => document.addEventListener(e, touch, { passive: true }));
-  setInterval(async () => {
-    try { App.status = await api('GET', '/api/status'); if (App.ready && !App.status.unlocked) App.onLocked(); }
+  const poll = async () => {
+    try {
+      App.status = await api('GET', '/api/status');
+      if (App.ready && !App.status.unlocked) App.onLocked();
+      else if (App.ready && App.status.dataRev !== App.dataRev && !$('#modal-root').innerHTML) {   // never swap data under an open form
+        App.dataRev = App.status.dataRev;
+        const before = S.reportees.length;
+        closeDrawer(); await Store.load(); applyTheme(); render();
+        toast(`Data was updated outside this window — refreshed (${plural(S.reportees.length, 'reportee')}${S.reportees.length !== before ? `, was ${before}` : ''})`, '', 5000);
+      }
+    }
     catch { if (App.ready) $('#banner').innerHTML = `<div class="banner">${ic('alert', 15)}Can’t reach the Team Desk server. If you closed its window, start Team Desk again — unsaved changes will be retried.</div>`; return; }
     $('#banner').innerHTML = $('#banner').innerHTML && !document.querySelector('.banner.multi') ? '' : $('#banner').innerHTML;
     if (Store.state === 'error') Store.flush();
-  }, 45000);
+  };
+  setInterval(poll, 10000);
+  window.addEventListener('focus', poll);
   try {
     const bc = new BroadcastChannel('teamdesk');
     bc.onmessage = e => {

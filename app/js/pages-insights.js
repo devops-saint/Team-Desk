@@ -135,3 +135,40 @@ function editDistribution() {
     onSave: f => { const n = {}; [1, 2, 3, 4, 5].forEach(k => n[k] = clamp(+f['r' + k] || 0, 0, 100)); const tot = Object.values(n).reduce((a, b) => a + b, 0);
       if (tot !== 100) { toast(`Percentages add up to ${tot}% — they should total 100%`, 'err'); return false; } S.settings.distribution = n; save(); } });
 }
+
+/* ---------- Monthly team report (printable, for your own manager / HR) ---------- */
+function pgReport() {
+  const e = needPeople('Team report'); if (e) return e;
+  crumbs([['Insights'], ['Team report']]);
+  const months = []; for (let i = 0; i < 6; i++) months.push(addMonths(today().slice(0, 7) + '-01', -i).slice(0, 7));
+  const mo = V.repMonth || months[0], names = !!V.repNames, ps = active(), c = cycleOf(mo + '-15');
+  const prevMo = addMonths(mo + '-01', -1).slice(0, 7), nextMo = addMonths(mo + '-01', 1).slice(0, 7);
+  const inMo = d => d && d.startsWith(mo);
+  const held = ps.filter(p => p.oneOnOnes.some(o => inMo(o.date)));
+  const mor = m => avg(ps.flatMap(p => p.oneOnOnes.filter(o => o.date.startsWith(m) && +o.morale).map(o => +o.morale)));
+  const mNow = mor(mo), mPrev = mor(prevMo);
+  const risk = { High: ps.filter(p => p.ninebox.risk === 'High'), Medium: ps.filter(p => p.ninebox.risk === 'Medium') };
+  const goals = ps.flatMap(p => p.goals.filter(g => goalCycle(g) === c.key && g.status !== 'Dropped').map(g => ({ ...g, p })));
+  const gCount = s => goals.filter(g => g.status === s).length;
+  const wins = ps.flatMap(p => p.feedback.filter(x => inMo(x.date) && ['Achievement', 'Kudos'].includes(x.type)).map(x => ({ ...x, p }))).sort((a, b) => a.date.localeCompare(b.date));
+  const contrib = ps.flatMap(p => p.oneOnOnes.filter(o => inMo(o.date)).flatMap(o => [['orgtrain', 'ot_delivered', 'Session delivered'], ['orgcontrib', 'oc_initiatives', 'Initiative'], ['orgcontrib', 'oc_sharing', 'Knowledge sharing'], ['orgcontrib', 'oc_hiring', 'Recruitment'], ['orgcontrib', 'oc_mentoring', 'Mentoring'], ['certs', 'ce_done', 'Certification']]
+    .filter(([t, q]) => answered(o.qa?.[t]?.[q])).map(([t, q, l]) => ({ p, l, text: o.qa[t][q] }))));
+  const leave = ps.flatMap(p => p.leaves.filter(l => l.status !== 'Cancelled' && (l.from.startsWith(nextMo) || (l.to || l.from).startsWith(nextMo))).map(l => ({ ...l, p }))).sort((a, b) => a.from.localeCompare(b.from));
+  const assessed = ps.filter(p => hasMgrRatings(p.comp[c.key])).length;
+  const pips = ps.filter(p => activePip(p)).length;
+  const who = list => names ? esc(list.map(p => p.profile.name).join(', ')) : '';
+  const tile = (l, v, s) => `<div class="card tile"><span class="label">${l}</span><span class="value">${v}</span><span class="sub">${s}</span></div>`;
+  const body = `<div class="grid g-auto">${tile('Team size', ps.length, `${plural(S.reportees.length - ps.length, 'archived')}`)}${tile(`1:1s in ${fmtMonth(mo)}`, `${held.length}/${ps.length}`, held.length === ps.length ? 'Everyone covered' : `${ps.length - held.length} missed`)}
+      ${tile('Average morale', mNow != null ? mNow.toFixed(1) + ' / 5' : '—', mPrev != null && mNow != null ? `${mNow >= mPrev ? '▲' : '▼'} from ${mPrev.toFixed(1)} last month` : 'from 1:1s')}${tile('Flight risk', `${risk.High.length} high · ${risk.Medium.length} med`, names && (risk.High.length || risk.Medium.length) ? who([...risk.High, ...risk.Medium]) : 'names hidden')}</div>
+    <div class="grid g2 mt">${card(`Goals · ${esc(c.short)}`, goals.length ? `<div class="dist">${['On track', 'At risk', 'Off track', 'Done'].map(s => `<div class="dist-row" style="grid-template-columns:110px 1fr 40px"><span>${s}</span><div class="dist-bar"><i style="width:${gCount(s) / goals.length * 100}%;${s === 'Off track' ? 'background:var(--bad)' : s === 'At risk' ? 'background:var(--warn)' : s === 'Done' ? 'background:var(--good)' : ''}"></i></div><span class="small">${gCount(s)}</span></div>`).join('')}</div>
+        ${goals.filter(g => ['At risk', 'Off track'].includes(g.status)).length ? `<div class="sec-label mt">Needing attention</div><ul style="margin:0;padding-left:18px">${goals.filter(g => ['At risk', 'Off track'].includes(g.status)).map(g => `<li class="small">${esc(g.title)}${names ? ` — ${esc(g.p.profile.name)}` : ''} (${esc(g.status)})</li>`).join('')}</ul>` : ''}` : '<span class="muted small">No goals this cycle.</span>')}
+      ${card('People processes', `<dl class="kv" style="grid-template-columns:200px 1fr"><dt>Competency assessments</dt><dd>${assessed}/${ps.length} done for ${esc(c.short)}</dd><dt>Development plans</dt><dd>${ps.filter(p => p.idp.some(i => !['Done', 'Deferred'].includes(i.status))).length}/${ps.length} with an active item</dd>
+        <dt>Improvement plans</dt><dd>${pips ? `${pips} active` : 'None'}</dd><dt>1:1s missed</dt><dd>${held.length === ps.length ? '—' : names ? who(ps.filter(p => !held.includes(p))) : `${ps.length - held.length}`}</dd></dl>`)}</div>
+    <div class="grid g2 mt">${card(`Highlights · ${fmtMonth(mo)}`, wins.length ? wins.map(x => `<div class="list-row small"><b class="nowrap">${fmtShort(x.date)}</b><div>${esc(x.p.profile.name)} — ${esc(x.sbi?.behaviour ? `${x.sbi.behaviour}${x.sbi.impact ? ' → ' + x.sbi.impact : ''}` : x.text.split('\n')[0])}</div></div>`).join('') : '<span class="muted small">No achievements or kudos logged this month.</span>')}
+      ${card('Org contributions', contrib.length ? contrib.map(x => `<div class="list-row small"><span class="badge">${esc(x.l)}</span><div>${esc(x.p.profile.name)} — ${esc(x.text)}</div></div>`).join('') : '<span class="muted small">None recorded in 1:1s this month.</span>')}</div>
+    <div class="mt">${card(`Leave planned · ${fmtMonth(nextMo)}`, leave.length ? `<table class="tbl"><tbody>${leave.map(l => `<tr><td>${esc(l.p.profile.name)}</td><td>${fmt(l.from)}${l.to && l.to !== l.from ? ' – ' + fmt(l.to) : ''}</td><td>${workDays(l.from, l.to || l.from)} days</td><td>${esc(l.type)}</td></tr>`).join('')}</tbody></table>` : '<span class="muted small">No leave recorded for next month.</span>', { flush: !!leave.length })}</div>`;
+  V.repBody = `<h1 style="font-size:20px;margin:0 0 4px">Team report — ${fmtMonth(mo)}</h1><p class="muted" style="margin:0 0 14px">${esc(S.settings.managerName || '')} · ${plural(ps.length, 'reportee')} · generated ${fmt(today())}</p>${body}`;
+  return pageHead('Team report', 'A one-page monthly summary to share upwards — with your own manager or HR. Names in sensitive sections are hidden unless you choose to show them.',
+    `<select class="input" style="width:auto" onchange="V.repMonth=this.value;render()">${opts(months.map(m => [m, fmtMonth(m)]), mo)}</select><label class="check small">${'<input type="checkbox" ' + (names ? 'checked' : '') + ' onchange="V.repNames=this.checked;render()">'}Show names</label><button class="btn primary" onclick="printReport()">${ic('printer', 15)}Print / PDF</button>`) + body;
+}
+function printReport() { $('#print-root').innerHTML = `<div style="padding:8px 4px">${V.repBody || ''}<p class="small muted">Confidential — prepared with Team Desk.</p></div>`; setTimeout(() => window.print(), 50); }

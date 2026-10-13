@@ -60,7 +60,7 @@ const NAV = [
   ['People', [['people', 'users', 'Reportees', '#/people']]],
   ['Insights', [['insights/competency', 'grid', 'Competency map', '#/insights/competency'], ['insights/skills', 'layers', 'Skills map', '#/insights/skills'],
     ['insights/talent', 'award', 'Talent & succession', '#/insights/talent'], ['insights/engagement', 'heart', 'Engagement', '#/insights/engagement'],
-    ['insights/calibration', 'bars', 'Calibration', '#/insights/calibration']]],
+    ['insights/calibration', 'bars', 'Calibration', '#/insights/calibration'], ['insights/report', 'file', 'Team report', '#/insights/report']]],
   ['My leadership', [['leadership', 'compass', 'Leadership', '#/leadership']]],
   ['Configuration', [['config/framework', 'target', 'Competency framework', '#/config/framework'], ['config/roles', 'clipboard', 'Roles & KPIs', '#/config/roles'],
     ['config/skills', 'list', 'Technical skills', '#/config/skills'], ['config/questions', 'message', '1:1 question bank', '#/config/questions'], ['config/guidelines', 'book', 'Org guidelines', '#/config/guidelines']]],
@@ -85,8 +85,9 @@ function renderSidebar(r) {
 function renderTopbar() {
   const c = PAGE.crumbs;
   $('#topbar').innerHTML = `<nav class="crumbs" aria-label="Breadcrumb">${c.map((x, i) => i === c.length - 1 ? `<b>${esc(x[0])}</b>` : `<a href="${x[1]}">${esc(x[0])}</a><span class="sep">/</span>`).join('')}</nav>
-    <div class="search">${ic('search', 15)}<input id="gsearch" placeholder="Find a reportee…" autocomplete="off" oninput="searchPeople(this.value)" onkeydown="searchKey(event)" onblur="setTimeout(()=>$('#gresults')?.remove(),150)"></div>
-    <button class="btn primary" onclick="editProfile()">${ic('plus', 15)}Add reportee</button>
+    <div class="search">${ic('search', 15)}<input id="gsearch" placeholder="Search people and notes…" autocomplete="off" oninput="searchPeople(this.value)" onkeydown="searchKey(event)" onblur="setTimeout(()=>$('#gresults')?.remove(),150)"></div>
+    <button class="btn" onclick="quickNote()" title="Capture an observation for any reportee" aria-label="Quick note">${ic('edit', 15)}<span class="lbl">Quick note</span></button>
+    <button class="btn primary" onclick="editProfile()" aria-label="Add reportee">${ic('plus', 15)}<span class="lbl">Add reportee</span></button>
     <span class="savestate" id="savestate"></span>`;
   renderSaveState();
 }
@@ -94,7 +95,7 @@ function renderSaveState() {
   const el = $('#savestate'); if (!el) return;
   const st = Store.state;
   el.className = 'savestate ' + st;
-  el.innerHTML = `<span class="dot"></span>${st === 'pending' ? 'Saving…' : st === 'error' ? 'Not saved' : Store.lastSaved ? `Saved ${Store.lastSaved.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'All changes saved'}`;
+  el.innerHTML = `<span class="dot"></span><span class="txt">${st === 'pending' ? 'Saving…' : st === 'error' ? 'Not saved' : Store.lastSaved ? `Saved ${Store.lastSaved.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'All changes saved'}</span>`;
   el.title = st === 'error' ? Store.error || '' : 'Saved to your encrypted data folder';
 }
 function searchPeople(q) {
@@ -102,8 +103,11 @@ function searchPeople(q) {
   q = q.trim().toLowerCase(); if (!q) return;
   const hits = S.reportees.filter(p => [p.profile.name, p.profile.designation, p.profile.empId, p.grade].some(x => String(x || '').toLowerCase().includes(q))).slice(0, 7);
   const box = document.createElement('div'); box.id = 'gresults'; box.className = 'search-results';
-  box.innerHTML = hits.length ? hits.map((p, i) => `<button class="${i === 0 ? 'on' : ''}" onmousedown="go('${personHref(p.id)}');$('#gsearch').value=''">${avatar(p, 'sm')}<span><b>${esc(p.profile.name)}</b><br><span class="xs muted">${esc([p.profile.designation, p.grade && 'Grade ' + p.grade, p.archived && 'Archived'].filter(Boolean).join(' · '))}</span></span></button>`).join('')
-    : '<div class="small muted" style="padding:8px">No reportee matches.</div>';
+  const notes = q.length >= 3 ? searchNotes(q).slice(0, 6) : [];
+  const snip = t => { const i = t.toLowerCase().indexOf(q), a = Math.max(0, i - 40); return (a ? '…' : '') + esc(t.slice(a, i)) + `<mark>${esc(t.slice(i, i + q.length))}</mark>` + esc(t.slice(i + q.length, i + q.length + 60)) + '…'; };
+  box.innerHTML = (hits.length ? hits.map((p, i) => `<button class="${i === 0 ? 'on' : ''}" onmousedown="go('${personHref(p.id)}');$('#gsearch').value=''">${avatar(p, 'sm')}<span><b>${esc(p.profile.name)}</b><br><span class="xs muted">${esc([p.profile.designation, p.grade && 'Grade ' + p.grade, p.archived && 'Archived'].filter(Boolean).join(' · '))}</span></span></button>`).join('') : '')
+    + (notes.length ? `<div class="xs muted" style="padding:6px 8px 2px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">In notes</div>` + notes.map(n => `<button onmousedown="${n.go};$('#gsearch').value=''">${ic(n.icon, 15, 'style="color:var(--muted)"')}<span style="min-width:0"><b>${esc(n.p.profile.name)}</b> <span class="xs muted">· ${esc(n.where)}</span><br><span class="xs">${snip(n.text)}</span></span></button>`).join('') : '')
+    || '<div class="small muted" style="padding:8px">No matches.</div>';
   $('.search').appendChild(box);
 }
 function searchKey(e) {
@@ -130,7 +134,7 @@ function dispatch(r) {
     case 'dashboard': return pgDashboard();
     case 'upcoming': return pgUpcoming();
     case 'people': return r[1] ? pgPerson(r[1], r[2] || 'overview') : pgPeople();
-    case 'insights': return ({ competency: pgCompMap, skills: pgSkillMap, talent: pgTalent, engagement: pgEngagement, calibration: pgCalibration }[r[1]] || pgCompMap)();
+    case 'insights': return ({ competency: pgCompMap, skills: pgSkillMap, talent: pgTalent, engagement: pgEngagement, calibration: pgCalibration, report: pgReport }[r[1]] || pgCompMap)();
     case 'leadership': return pgLeadership(r[1] || 'scorecard');
     case 'config':
       if (r[1] === 'roles') return r[2] ? pgRole(r[2]) : pgRoles();
@@ -306,3 +310,26 @@ const DP = {
 document.addEventListener('mousedown', e => { if (DP.el && !DP.el.contains(e.target) && !DP.btn?.contains(e.target)) DP.close(); }, true);
 window.addEventListener('resize', () => DP.close());
 document.addEventListener('scroll', e => { if (DP.el && !DP.el.contains(e.target)) DP.place(); }, true);
+
+/* full-text search across 1:1s, feedback, goals and documents (manager-only) */
+function searchNotes(q) {
+  q = q.toLowerCase(); const out = [], has = t => t && String(t).toLowerCase().includes(q);
+  for (const p of S.reportees) {
+    for (const o of [...p.oneOnOnes].sort((a, b) => b.date.localeCompare(a.date))) {
+      const parts = [o.updates, o.notes, o.concerns, o.support, o.career, o.private, ...Object.values(o.grow || {}), ...Object.values(o.qa || {}).flatMap(v => Object.values(v))];
+      const t = parts.find(has); if (t) out.push({ p, text: String(t), where: `1:1 ${fmt(o.date)}`, icon: 'message', go: `openMeeting('${p.id}','${o.id}')` });
+    }
+    p.feedback.filter(x => has(x.text)).forEach(x => out.push({ p, text: x.text, where: `${x.type} ${fmt(x.date)}`, icon: 'heart', go: `go('${personHref(p.id, 'feedback')}')` }));
+    p.goals.filter(g => has(g.title) || has(g.desc)).forEach(g => out.push({ p, text: has(g.title) ? g.title : g.desc, where: 'Goal', icon: 'target', go: `go('${personHref(p.id, 'goals')}')` }));
+    p.docs.filter(d => has(d.text)).forEach(d => out.push({ p, text: d.text, where: d.name, icon: 'file', go: `go('${personHref(p.id, 'documents')}')` }));
+  }
+  return out;
+}
+
+/* navigate to a reportee's 1:1 list and open one meeting (after the page has rendered) */
+function openMeeting(pid, oid) {
+  const h = personHref(pid, 'meetings');
+  if (location.hash === h) return viewOne(pid, oid);
+  window.addEventListener('hashchange', () => setTimeout(() => viewOne(pid, oid), 0), { once: true });
+  location.hash = h;
+}

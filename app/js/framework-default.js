@@ -276,19 +276,29 @@ window.DEFAULT_FRAMEWORK = {
  "scale": [
   {
    "v": "1",
-   "label": "Developing – below grade expectation"
+   "label": "Well below grade expectation"
   },
   {
    "v": "2",
-   "label": "Meets grade expectation"
+   "label": "Developing – below grade expectation"
   },
   {
    "v": "3",
-   "label": "Exceeds – working above grade"
+   "label": "Meets grade expectation"
+  },
+  {
+   "v": "4",
+   "label": "Exceeds – often working above grade"
+  },
+  {
+   "v": "5",
+   "label": "Outstanding – consistently at next-grade level"
   },
   {
    "v": "X",
    "label": "Not applicable / not demonstrated"
   }
- ]
+ ],
+ "sourceScale": 3,
+ "scaleMigrated": true
 };

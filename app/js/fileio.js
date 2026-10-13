@@ -169,9 +169,12 @@ async function importFramework(file, m) {
       ${cur ? callout('info', `This replaces the current framework. Ratings already given are kept and matched by competency code.${added.length ? ` New: ${esc(added.join(', '))}.` : ''}${removed.length ? ` No longer present: ${esc(removed.join(', '))}.` : ''}`) : ''}
       ${Object.values(m.ratings).some(r => r.rating) ? callout('warn', 'This file also contains ratings. They are ignored here — import someone’s ratings from their Competencies page.') : ''}`,
     onSave: () => {
-      const old = cur?.scale || DEFAULT_SCALE;
-      const sc = (m.scale.length ? m.scale : DEFAULT_SCALE).map(s => ({ v: s.v, label: s.label || old.find(o => o.v === s.v)?.label || DEFAULT_SCALE.find(o => o.v === s.v)?.label || '' }));
-      S.framework = { name: file.name.replace(/\.[^.]+$/, '').replace(/^\d+_/, '').replace(/_/g, ' '), file: file.name, imported: today(), sheetName: m.sheetName, grades: m.grades, groups: m.groups, comps: m.comps, scale: sc };
+      /* Team Desk always rates on 1–5; remember the file's own scale so imports/exports can convert */
+      const fileMax = Math.max(0, ...m.scale.map(s => numVal(s.v)).filter(v => v !== null));
+      const old = cur?.scale?.some(s => s.v === '5') ? cur.scale : DEFAULT_SCALE;
+      const sc = DEFAULT_SCALE.map(s => ({ v: s.v, label: old.find(o => o.v === s.v)?.label || s.label }));
+      S.framework = { name: file.name.replace(/\.[^.]+$/, '').replace(/^\d+_/, '').replace(/_/g, ' '), file: file.name, imported: today(), sheetName: m.sheetName, grades: m.grades, groups: m.groups, comps: m.comps, scale: sc,
+        sourceScale: fileMax && fileMax < 5 ? fileMax : (cur?.sourceScale || 5), scaleMigrated: true };
       save(); toast('Competency framework loaded');
     },
   });
@@ -186,16 +189,22 @@ function importFilledMatrix(pid, file, m, o = {}) {
     const known = found.filter(([c]) => compByCode(c)), unknown = found.filter(([c]) => !compByCode(c));
     const fl = file.name.toLowerCase(), mineName = firstName(p.profile.name).toLowerCase();
     const others = S.reportees.filter(x => x.id !== pid && x.profile.name && fl.includes(firstName(x.profile.name).toLowerCase()) && !fl.includes(mineName));
+    const legendMax = Math.max(0, ...m.scale.map(s => numVal(s.v)).filter(v => v !== null));
+    const valMax = Math.max(0, ...known.map(([, r]) => numVal(r.rating)).filter(v => v !== null));
+    const guess3 = legendMax ? legendMax <= 3 : (valMax <= 3 && FW().sourceScale === 3);
     openModal({
       title: 'Import competency ratings', sub: `${esc(file.name)} → ${esc(p.profile.name)}`, size: 'wide', saveText: 'Import ratings',
       body: `${others.length ? callout('warn', `The file name looks like it belongs to <b>${esc(others.map(x => x.profile.name).join(', '))}</b>. Check before importing into ${esc(p.profile.name)}.`) : ''}
-        <div class="fgrid">${sel('These ratings are', 'whose', [['self', `${firstName(p.profile.name)}’s self-assessment`], ['mine', 'My assessment of them']], o.whose || 'self')}${sel('Review cycle', 'cycle', cycleOpts(), o.cycle || V.compCycle || cycleOf().key)}</div>
+        <div class="fgrid">${sel('These ratings are', 'whose', [['self', `${firstName(p.profile.name)}’s self-assessment`], ['mine', 'My assessment of them']], o.whose || 'self')}${sel('Review cycle', 'cycle', cycleOpts(), o.cycle || V.compCycle || cycleOf().key)}
+        ${sel('Ratings in this file use', 'fscale', [['3', '1–3 scale (HR template) — convert to 1–5'], ['5', '1–5 scale — import as is']], guess3 ? '3' : '5', { cls: 'full', hint: 'Conversion: 1 → 2 (below grade), 2 → 3 (meets), 3 → 4 (exceeds). X stays X.' })}</div>
         <div class="small muted">${known.length} competencies with ratings or comments${unknown.length ? ` · skipped (not in framework): ${esc(unknown.map(u => u[0]).join(', '))}` : ''}. Existing values for these will be replaced.</div>
         <div class="card"><div class="card-body flush tbl-wrap"><table class="tbl"><thead><tr><th>Competency</th><th class="c">Rating</th><th>Comment</th></tr></thead><tbody>
         ${known.map(([c, r]) => `<tr><td>${esc(c)} · ${esc(compByCode(c).name)}</td><td class="c">${ratingChip(r.rating)}</td><td class="small">${esc(r.comment)}</td></tr>`).join('')}</tbody></table></div></div>`,
       onSave: async d => {
         const rec = ensureComp(p, d.cycle);
-        known.forEach(([c, r]) => {
+        const cv = v => d.fscale === '3' && SCALE3_TO5[String(v)] ? SCALE3_TO5[String(v)] : v;
+        known.forEach(([c, r0]) => {
+          const r = { ...r0, rating: cv(r0.rating) };
           const it = rec.items[c] = rec.items[c] || {};
           if (d.whose === 'self') { if (r.rating) it.self = r.rating; if (r.comment) it.selfComment = r.comment; }
           else { if (r.rating) it.rating = r.rating; if (r.comment) it.comment = r.comment; if (r.by) it.by = r.by; }
@@ -211,27 +220,35 @@ function importFilledMatrix(pid, file, m, o = {}) {
     });
   });
 }
-function matrixAoa(rec, field, commentField) {
+function matrixAoa(rec, field, commentField, as3) {
   const fw = FW(), aoa = [['Grades', '', 'Rating', 'Comments', 'Initials', ...fw.grades]];
   [...new Set(fw.comps.map(c => c.group))].forEach(gn => {
     if (gn) { const g = fw.groups.find(x => x.name === gn); aoa.push([gn, '', '', '', '', ...(g?.note ? [g.note] : [])]); }
     fw.comps.filter(c => c.group === gn).forEach(c => { const it = rec?.items?.[c.code] || {}, v = it[field];
-      aoa.push([c.code, c.name, v ? (numVal(v) !== null ? +v : v) : '', it[commentField] || '', field === 'rating' ? (it.by || '') : '', ...fw.grades.map(g => c.desc[g] || '')]); });
+      const out = v && as3 ? to3(v) : v;
+      aoa.push([c.code, c.name, out ? (numVal(out) !== null ? +out : out) : '', it[commentField] || '', field === 'rating' ? (it.by || '') : '', ...fw.grades.map(g => c.desc[g] || '')]); });
   });
-  const st = compStats(rec, field);
-  aoa.push(['', '', st.avg !== null ? +st.avg.toFixed(2) : ''], ['', '', 'Score'], ...scale().map(s => ['', '', numVal(s.v) !== null ? +s.v : s.v, s.label]));
+  const st = compStats(rec, field), nums = (FW()?.comps || []).map(c => numVal(as3 ? to3(rec?.items?.[c.code]?.[field]) : rec?.items?.[c.code]?.[field])).filter(v => v !== null);
+  const legend = as3 ? SCALE3_LABELS.map(([v, l]) => ['', '', numVal(v) !== null ? +v : v, l]) : scale().map(s => ['', '', numVal(s.v) !== null ? +s.v : s.v, s.label]);
+  aoa.push(['', '', nums.length ? +(nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2) : (st.avg !== null && !as3 ? +st.avg.toFixed(2) : '')], ['', '', 'Score'], ...legend);
   return aoa;
 }
-async function exportCompXlsx(pid, ck) {
+function exportCompXlsx(pid, ck) {
+  if (FW()?.sourceScale !== 3) return doExportComp(pid, ck, false);
+  openModal({ title: 'Download competency matrix', sub: 'Your organisation’s template uses a 1–3 scale; Team Desk rates on 1–5.', saveText: 'Download',
+    body: sel('Ratings in the file', 'as', [['5', '1–5, as rated in Team Desk'], ['3', '1–3, converted for the HR template (1–2 → 1, 3 → 2, 4–5 → 3)']], '5', { hint: 'The legend at the bottom of the sheet matches the scale you choose.' }),
+    onSave: d => { doExportComp(pid, ck, d.as === '3'); } });
+}
+async function doExportComp(pid, ck, as3) {
   let X; try { X = await loadLib('xlsx'); } catch (e) { return toast(e.message, 'err'); }
   const p = getP(pid), fw = FW(), rec = p.comp[ck] || { items: {} }, c = cycleByKey(ck);
   const cols = [{ wch: 8 }, { wch: 30 }, { wch: 8 }, { wch: 40 }, { wch: 9 }, ...fw.grades.map(() => ({ wch: 45 }))];
-  const wb = X.utils.book_new(), ws = X.utils.aoa_to_sheet(matrixAoa(rec, 'rating', 'comment')); ws['!cols'] = cols;
+  const wb = X.utils.book_new(), ws = X.utils.aoa_to_sheet(matrixAoa(rec, 'rating', 'comment', as3)); ws['!cols'] = cols;
   X.utils.book_append_sheet(wb, ws, (fw.sheetName || 'Competency_Matrix').slice(0, 31));
-  if (compStats(rec, 'self').rated) { const s2 = X.utils.aoa_to_sheet(matrixAoa(rec, 'self', 'selfComment')); s2['!cols'] = cols; X.utils.book_append_sheet(wb, s2, 'Self assessment'); }
+  if (compStats(rec, 'self').rated) { const s2 = X.utils.aoa_to_sheet(matrixAoa(rec, 'self', 'selfComment', as3)); s2['!cols'] = cols; X.utils.book_append_sheet(wb, s2, 'Self assessment'); }
   const ms = compStats(rec), ss = compStats(rec, 'self');
   const sum = X.utils.aoa_to_sheet([['Name', p.profile.name], ['Employee ID', p.profile.empId || ''], ['Designation', p.profile.designation || ''], ['Grade', rec.grade || p.grade || ''], ['Review cycle', c.label],
-    ['Manager average', ms.avg !== null ? +ms.avg.toFixed(2) : ''], ['Self average', ss.avg !== null ? +ss.avg.toFixed(2) : ''], ['Rated', `${ms.rated} of ${fw.comps.length}`], ['Assessed by', S.settings.managerName || ''], ['Exported', fmt(today())]]);
+    ['Rating scale', as3 ? '1–3 (converted from Team Desk 1–5)' : '1–5'], ['Manager average (1–5)', ms.avg !== null ? +ms.avg.toFixed(2) : ''], ['Self average (1–5)', ss.avg !== null ? +ss.avg.toFixed(2) : ''], ['Rated', `${ms.rated} of ${fw.comps.length}`], ['Assessed by', S.settings.managerName || ''], ['Exported', fmt(today())]]);
   sum['!cols'] = [{ wch: 18 }, { wch: 40 }];
   X.utils.book_append_sheet(wb, sum, 'Summary');
   X.writeFile(wb, safeName(`Competency_Matrix_${p.profile.name}_${c.short}.xlsx`));

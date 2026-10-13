@@ -28,8 +28,10 @@ function pgDashboard() {
     <div class="grid g-side mt">
       ${card('Needs your attention', attention.length ? attention.map(x => `<div class="focus-item">${sevDot(x.lvl)}<div class="grow"><a href="${personHref(x.p.id)}"><b>${esc(x.p.profile.name)}</b></a> <span class="badge">${esc(x.area)}</span><div class="small">${esc(x.text)}</div></div><a class="btn sm" href="${personHref(x.p.id, x.sec || 'overview')}">Open</a></div>`).join('')
         : `<div class="muted">${ic('check', 14)} No high-priority items across your team.</div>`, { sub: 'Highest-priority items across your team', actions: `<a class="btn sm ghost" href="#/people">All reportees</a>` })}
-      ${card(`1:1s this month`, ps.map(p => { const l = lastOne(p), ok = l && l.date.startsWith(month);
-        return `<div class="list-row" style="align-items:center">${avatar(p, 'sm')}<div class="grow"><a href="${personHref(p.id, 'meetings')}">${esc(p.profile.name)}</a><div class="xs muted">${l ? `Last: ${fmt(l.date)}` : 'No 1:1 yet'}</div></div>${ok ? '<span class="badge b-good">Done</span>' : `<button class="btn sm ghost" onclick="prepareOne('${p.id}')">Prepare</button><button class="btn sm" onclick="editOne('${p.id}')">Log 1:1</button>`}</div>`; }).join(''), { sub: fmtMonth(month) })}
+      <div class="grid" style="align-content:start">${card(`1:1s this month`, ps.map(p => { const l = lastOne(p), ok = l && l.date.startsWith(month);
+        return `<div class="list-row" style="align-items:center">${avatar(p, 'sm')}<div class="grow"><a href="${personHref(p.id, 'meetings')}">${esc(p.profile.name)}</a><div class="xs muted">${l ? `Last: ${fmt(l.date)}` : 'No 1:1 yet'}${p.profile.cadence && p.profile.cadence !== 'Monthly' ? ` · ${esc(p.profile.cadence.toLowerCase())}` : ''}</div></div>${ok ? '<span class="badge b-good">Done</span>' : `<button class="btn sm ghost" onclick="prepareOne('${p.id}')">Prepare</button><button class="btn sm" onclick="editOne('${p.id}')">Log 1:1</button>`}</div>`; }).join(''), { sub: fmtMonth(month) })}
+      ${(() => { const ms = ps.flatMap(p => milestones(p, 30).map(m => ({ ...m, p }))).sort((a, b) => a.date.localeCompare(b.date));
+        return ms.length ? `<div class="mt">${card('Milestones · next 30 days', ms.map(m => `<div class="list-row" style="align-items:center">${ic(m.icon, 16, `style="color:${m.kind === 'probation' ? 'var(--warn)' : 'var(--accent)'}"`)}<div class="grow"><a href="${personHref(m.p.id, 'profile')}">${esc(m.text)}</a><div class="xs muted">${fmt(m.date)} · ${relDays(m.date)}</div></div></div>`).join(''))}</div>` : ''; })()}</div>
     </div>`;
 }
 
@@ -72,6 +74,7 @@ function pgUpcoming() {
       (o.actions || []).filter(a => !a.done && a.due && a.due >= t && a.due <= addDays(t, 30)).forEach(a => up.push({ d: a.due, p, icon: 'checkSq', txt: `${a.owner === 'me' ? 'Your action' : 'Their action'}: ${a.text}`, sec: 'actions' }));
     });
     const pip = activePip(p); if (pip?.end && pip.end >= t && pip.end <= addDays(t, 30)) up.push({ d: pip.end, p, icon: 'flag', txt: 'Improvement plan end date', sec: 'pip' });
+    milestones(p, 30).forEach(m => up.push({ d: m.date, p, icon: m.icon, txt: m.kind === 'probation' ? 'Probation ends — confirmation review' : m.kind === 'birthday' ? 'Birthday' : m.text.replace(/^.*’s /, ''), sec: 'profile' }));
     upcomingLeave(p, 30).forEach(l => up.push({ d: l.from < t ? t : l.from, p, icon: 'calendar', txt: `${l.from < t ? 'On leave until ' + fmtShort(l.to || l.from) : 'Leave starts'}${l.to && l.to !== l.from && l.from >= t ? ` (to ${fmtShort(l.to)})` : ''} · ${l.type}`, sec: 'leave' }));
     (p.tasks || []).filter(a => !a.done && a.due && a.due >= t && a.due <= addDays(t, 30)).forEach(a => up.push({ d: a.due, p, icon: 'checkSq', txt: `${a.owner === 'me' ? 'Your action' : 'Their action'}: ${a.text}`, sec: 'actions' }));
   });
@@ -113,8 +116,10 @@ function editProfile(id) {
         ${sel('Role (for KPIs & skill targets)', 'roleId', [['', '— none —'], ...S.roles.map(r => [r.id, r.name])], p?.roleId)}${fld('Team / project', 'team', pr.team)}
         ${dfld('Date of joining', 'doj', pr.doj, { quick: 'past' })}${dfld('Reporting to me since', 'since', pr.since, { quick: 'past' })}
         ${dfld('Last promotion', 'lastPromo', pr.lastPromo, { quick: 'past' })}${sel('Work mode', 'workMode', ['', 'Office', 'Hybrid', 'Remote'], pr.workMode)}
-        ${fld('Location', 'location', pr.location)}${gradeOpts ? fld('Band', 'band', pr.band, { opt: true }) : ''}</div>`],
-      ['Contact', `<div class="fgrid">${fld('Work email', 'email', pr.email, { type: 'email' })}${fld('Phone', 'phone', pr.phone, { type: 'tel' })}</div>`],
+        ${fld('Location', 'location', pr.location)}${gradeOpts ? fld('Band', 'band', pr.band, { opt: true }) : ''}
+        ${sel('1:1 frequency', 'cadence', ['Monthly', 'Fortnightly', 'Weekly'], pr.cadence || 'Monthly', { hint: 'Used for “1:1 overdue” reminders.' })}${dfld('Probation ends', 'probationEnd', pr.probationEnd, { opt: true, quick: '' })}
+        ${chk('Confirmed after probation', 'confirmed', pr.confirmed, { cls: 'full' })}</div>`],
+      ['Contact', `<div class="fgrid">${fld('Work email', 'email', pr.email, { type: 'email' })}${fld('Phone', 'phone', pr.phone, { type: 'tel' })}${dfld('Birthday', 'dob', pr.dob, { opt: true, quick: 'past', hint: 'Only used for a reminder on the day. Year is not shown.' })}</div>`],
       ['Background & aspirations', `<div class="fgrid">${fld('Total experience (years)', 'exp', pr.exp, { type: 'number', attrs: 'step="0.5" min="0"' })}${fld('Education', 'education', pr.education)}
         ${area('Certifications', 'certs', pr.certs, { rows: 2 })}${area('Current responsibilities / key projects', 'projects', pr.projects)}
         ${area('Career aspirations', 'aspirations', pr.aspirations, { rows: 2 })}${area('Personal context', 'personal', pr.personal, { rows: 2, hint: 'Interests, constraints, what motivates them. Only you can see this.' })}</div>`],
@@ -133,4 +138,21 @@ function editProfile(id) {
       }
     },
   });
+}
+
+/* ---------- quick note: capture an observation for anyone in seconds ---------- */
+function quickNote(pid) {
+  const ps = active();
+  if (!ps.length) return toast('Add a reportee first', 'err');
+  openModal({ title: 'Quick note', sub: 'Capture it now — it goes into the reportee’s feedback log.', saveText: 'Save note',
+    body: `<div class="fgrid">${sel('Reportee', 'pid', ps.map(p => [p.id, p.profile.name]), pid || (route()[0] === 'people' && route()[1]) || ps[0].id)}${sel('Type', 'type', FB_TYPES, 'Observation')}
+      ${area('Note', 'text', '', { rows: 4, ph: 'What did you see or hear? Be specific — when, what, impact.' })}${dfld('Date', 'date', today(), { quick: 'past' })}<span></span>
+      ${chk('Also add a follow-up action for me', 'follow', false, { cls: 'full' })}</div>`,
+    onSave: d => {
+      if (!d.text) { toast('Write the note', 'err'); return false; }
+      const p = getP(d.pid);
+      p.feedback.push({ id: uid(), date: d.date || today(), type: d.type, source: 'Manager', from: '', text: d.text });
+      if (d.follow) p.tasks.push({ id: uid(), text: `Follow up: ${d.text.slice(0, 120)}`, owner: 'me', due: addDays(today(), 7), done: false, created: today(), source: 'Quick note' });
+      save(); toast(`Saved to ${firstName(p.profile.name)}’s feedback log`);
+    } });
 }

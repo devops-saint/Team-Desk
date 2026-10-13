@@ -1,15 +1,21 @@
 {
   "name": "team-desk",
-  "version": "3.1.0",
+  "version": "3.3.0",
   "description": "Private, encrypted manager workspace for managing reportees — runs locally.",
   "private": true,
   "license": "UNLICENSED",
   "main": "server/server.js",
-  "bin": { "teamdesk": "server/server.js" },
-  "engines": { "node": ">=18" },
+  "bin": {
+    "teamdesk": "server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server/server.js",
-    "start:no-open": "node server/server.js --no-open"
+    "start:no-open": "node server/server.js --no-open",
+    "demo": "node scripts/seed-demo.js",
+    "demo:remove": "node scripts/seed-demo.js --remove"
   },
   "optionalDependencies": {
     "pdfjs-dist": "3.11.174",

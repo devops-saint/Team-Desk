@@ -1,6 +1,6 @@
 # Team Desk — Demo Script
 
-**Version:** 3.1 · **Full demo:** about 25 minutes · **Short demo:** 8 minutes (see the end)
+**Version:** 3.3 · **Full demo:** about 25 minutes · **Short demo:** 8 minutes (see the end)
 
 How to use this script:
 
@@ -10,28 +10,41 @@ How to use this script:
 
 ---
 
-## Before the demo (10 minutes of preparation)
+## Before the demo (about 3 minutes of preparation)
 
 1. **Use a separate demo data folder, not your real one.**
-   - In Team Desk, go to **Settings › Data & backups › Open a different data folder**.
-   - Choose an empty folder like `Documents/TeamDesk Demo`. Set a simple password you will remember.
+   - Start Team Desk. Go to **Settings › Data & backups › Open a different data folder**.
+   - Choose an empty folder like `Documents/TeamDesk Demo`. Set a simple password and finish the short setup.
    - Your real data stays untouched. Switch back the same way after the demo.
-2. **Create three sample reportees** with dummy names. Never use real names in a demo.
-   - *Asha Rao*: Senior Data Engineer, Grade C2. She will show most of the features.
-   - *Vikram Singh*: Data Engineer, Grade S1.
-   - *Priya Menon*: Associate Engineer, Grade C1.
-3. For Asha, log **one older 1:1** dated last month, with a couple of answers filled. Then today's "Last time" hints will show.
-4. For Asha, add **one goal** due in about six weeks.
-5. Give Vikram **one leave entry** next month, so the team-leave overlap shows.
-6. Keep a small text file ready called `asha_peer_feedback.txt`, with these lines:
+2. **Load the demo data automatically.** Keep Team Desk running and the browser tab open, then either:
+   - double-click **`Load Demo Data.command`** (Mac) or **`Load Demo Data.bat`** (Windows), or
+   - run `npm run demo` in the Team Desk folder.
+
+   It adds **six fictional reportees**, one at each grade, with three to four months of history. The browser tab refreshes by itself within about 10 seconds.
+
+   | Reportee | Grade | What they show off |
+   |---|---|---|
+   | Arjun Mehta | A2 | Graduate onboarding, pending mandatory training, laptop request |
+   | Priya Menon | C1 | Under-challenged, morale falling, no 1:1 this month, feels left out |
+   | Asha Rao | C2 | Outside offer, blocker raised twice, SnowPro exam, leave clash, 5 suggestions to review |
+   | Rohan Kulkarni | C3 | Active improvement plan, self vs manager rating gaps, self-assessment document |
+   | Vikram Singh | S1 | Star performer, key person, ready now, mentoring, overlapping leave |
+   | Neha Iyer | S2 | High performer, thought leadership, conference leave, rated 5 and calibrated |
+
+   It also adds three roles with KPIs, an appraisal-guidelines document, your leadership self-assessment and four anonymous upward-feedback responses.
+3. Keep a small text file ready called `asha_peer_feedback.txt`, for the live upload in section 9:
    ```
    Peer feedback for Asha Rao
    She was a bit rude to the client in Tuesday's call and we missed the deadline for the data model.
    She successfully automated the reconciliation job, saving 6 hours every week.
    She wants to learn more about Snowflake performance tuning.
    ```
-7. **Optional, for the AI part:** keep Ollama running with a model pulled, for example `ollama pull llama3.1:8b`. Then turn it on in **Settings › AI assistant** and click **Test** once, so the model is already loaded.
-8. Close other tabs. Keep the browser zoom at 100%. Keep the Team Desk terminal window minimised, not closed.
+4. **Optional, for the AI part:** keep Ollama running with a model pulled, for example `ollama pull llama3.1:8b`. Turn it on in **Settings › AI assistant** and click **Test** once, so the model is already loaded.
+5. Close other tabs. Keep the browser zoom at 100%. Keep the Team Desk terminal window minimised, not closed.
+
+> **After the demo:** run `npm run demo:remove`, or `node scripts/seed-demo.js --remove`, to delete everything the loader added. Then switch back to your real data folder.
+>
+> **Safety:** the loader refuses to run on a folder that already has real reportees (unless you add `--force`). It always takes a backup snapshot first. All names and details are invented.
 
 ---
 
@@ -71,7 +84,15 @@ How to use this script:
 > "This is the first screen I see every morning. Very simple.
 > On top: how many reportees I have, how many 1:1s are done this month, open action items, how many competency assessments are pending, and my own leadership-habits score. I'll explain that later.
 > Below, **Needs your attention**. The tool has gone through everybody's records and is telling me: Asha has a blocker, Priya has no 1:1 this month, Vikram has no goals set. Red means act now, amber means soon.
-> On the right, the 1:1 status for this month. From here itself I can prepare for or log a 1:1."
+> On the right, the 1:1 status for this month. From here itself I can prepare for or log a 1:1.
+> Below that, **Milestones**: Asha's birthday is in a few days, and Vikram completes five years soon. Small thing, but people remember when the manager remembers.
+> Rohan is on weekly 1:1s and Priya on fortnightly, because I set the frequency per person. The overdue alerts follow that. And Arjun's probation ends soon, so the tool reminds me to do his confirmation review."
+
+**DO:** Click **Quick note** in the top bar, pick Asha, type one line and save.
+
+**SAY:**
+> "Suppose in a meeting Asha handled a client escalation very well. I don't wait for the 1:1. Quick note, ten seconds, done. It goes into her feedback log, and if I want, it creates a follow-up action also.
+> And this search on top: it finds people, and also words inside my notes. If I type *certification*, it shows which 1:1 it was discussed in, and opens that exact meeting."
 
 **DO:** Click **Upcoming & actions**, then the **Team leave** tab.
 
@@ -252,12 +273,13 @@ How to use this script:
 
 **SAY:**
 > "This is our company's **competency matrix**, built in: 15 competencies across 4 groups, grades A2 to P2.
-> For each competency it shows exactly **what is expected at Asha's grade**, C2, and I can peep at the next grade too. Her self-rating and my rating sit side by side, on the 1, 2, 3, X scale, with comments as evidence."
+> For each competency it shows exactly **what is expected at Asha's grade**, C2, and I can peep at the next grade too. Her self-rating and my rating sit side by side on a **1 to 5 scale**, where 3 means 'meets the grade', 4 is above and 5 is outstanding, plus X for not applicable. Comments go in as evidence."
 
 **DO:** Click the **Summary** tab, then **Download (org format)**.
 
 **SAY:**
-> "One click downloads it **in the same Excel format HR gives us**, with my ratings, her self-assessment and a summary sheet. So no copy-pasting at appraisal time."
+> "Our HR template uses 1 to 3, so when I download, it asks: keep 1–5 or convert to 1–3. And when a reportee sends back the HR sheet with 1–3 ratings, it converts them to 1–5 automatically.
+> One click downloads it **in the same Excel format HR gives us**, with my ratings, her self-assessment and a summary sheet. So no copy-pasting at appraisal time."
 
 **DO:** Quickly show **Technical skills**, then **KPIs**.
 
@@ -314,6 +336,13 @@ How to use this script:
 > - **Skills map**: the same for technical skills, with internal mentors.
 > - **Talent & succession**: who is ready now for the next level, who is ready in one or two cycles, and who are our key people to retain.
 > - **Engagement**: the morale trend for six months, per person and for the team."
+
+**DO:** Click **Team report**, untick **Show names**, then click **Print**.
+
+**SAY:**
+> "Every month my own manager asks: how is your team doing? Earlier I used to make slides. Now: Team report. 1:1 coverage, goals status, people processes, highlights, org contributions, and who is on leave next month.
+> If I'm sharing it upwards, I untick *Show names*. Print, done.
+> Similarly on any reportee's profile there is a **One-page summary**. It prints only that person, and it leaves out my private notes, flight risk and improvement plan."
 
 ---
 
@@ -405,4 +434,5 @@ If time is less, cover only these:
 - If the AI is slow on the first call, it is loading the model. Run **Test** in Settings five minutes before the demo.
 - Keep the Team Desk terminal window minimised. Closing it stops the app.
 - If something doesn't load, refresh the browser. Data is saved automatically every few seconds; see "Saved" at the top right.
-- After the demo, switch back to your real data folder: **Settings › Data & backups › Open a different data folder**.
+- Want a fresh start mid-rehearsal? Run the loader again. It refreshes the six demo reportees to their original state.
+- After the demo, run `npm run demo:remove`, then switch back to your real data folder: **Settings › Data & backups › Open a different data folder**.

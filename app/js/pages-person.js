@@ -27,7 +27,7 @@ function pgPerson(id, sec) {
     goals: secGoals, idp: secIdp, strengths: secStrengths, feedback: secFeedback, pip: secPip, profile: secProfile, documents: secDocuments, review: secReview }[sec](p);
   return `<div class="person-head"><div class="row" style="gap:14px;flex-wrap:nowrap">${avatar(p, 'lg')}<div><h1>${esc(p.profile.name)}</h1><div class="meta">${meta || 'No designation set'}</div>
       <div class="row mt-s">${p.archived ? '<span class="badge">Archived</span>' : ''}${nb ? `<span class="badge b-acc">${esc(nb.name)}</span>` : ''}${riskBadge(p.ninebox.risk)}${pip ? '<span class="badge b-warn">Improvement plan active</span>' : ''}</div></div></div>
-      <div class="row"><button class="btn" onclick="editProfile('${p.id}')">${ic('edit', 15)}Edit profile</button><button class="btn primary" onclick="editOne('${p.id}')">${ic('message', 15)}Log 1:1</button></div></div>
+      <div class="row"><button class="btn" onclick="quickNote('${p.id}')">${ic('edit', 15)}Quick note</button><button class="btn" onclick="editProfile('${p.id}')">Edit profile</button><button class="btn primary" onclick="editOne('${p.id}')">${ic('message', 15)}Log 1:1</button></div></div>
     <div class="ws"><nav class="subnav" aria-label="Sections">${SECTIONS.map(([g, items]) => `<div class="grp">${g}</div>${items.map(([k, l, icon]) => `<a class="${k === sec ? 'on' : ''}" href="${personHref(p.id, k)}">${ic(icon, 15)}${l}${count[k] ? `<span class="badge ${k === 'overview' ? 'b-bad' : k === 'pip' || k === 'suggestions' ? 'b-warn' : ''}">${count[k]}</span>` : ''}</a>`).join('')}`).join('')}</nav>
       <select class="input subnav-select" onchange="go('${personHref(p.id, '')}'+this.value)">${SECTIONS.map(([g, items]) => `<optgroup label="${g}">${items.map(([k, l]) => `<option value="${k}" ${k === sec ? 'selected' : ''}>${l}</option>`).join('')}</optgroup>`).join('')}</select>
       <div style="min-width:0">${body}</div></div>`;
@@ -49,7 +49,7 @@ function secOverview(p) {
       <dt>Next 1:1</dt><dd>${n ? fmt(n) : '<span class="muted">Not planned</span>'}</dd>
       <dt>Open action items</dt><dd>${openActs.length}${openActs.filter(a => a.due && a.due < today()).length ? ` <span class="badge b-bad">${openActs.filter(a => a.due && a.due < today()).length} overdue</span>` : ''}</dd>
       <dt>Goals</dt><dd>${cg ? `${cg} · ${pct(gs)} complete` : '<span class="muted">None set</span>'}</dd>
-      ${FW() ? `<dt>Competency average</dt><dd>${cs.avg != null ? `${cs.avg.toFixed(2)} / ${highV()}` : '<span class="muted">Not assessed</span>'}</dd>` : ''}
+      ${FW() ? `<dt>Competency average</dt><dd>${cs.avg != null ? `${cs.avg.toFixed(2)} / ${maxV()}` : '<span class="muted">Not assessed</span>'}</dd>` : ''}
       <dt>Development plan</dt><dd>${p.idp.filter(i => !['Done', 'Deferred'].includes(i.status)).length} active · ${p.idp.filter(i => i.status === 'Done').length} done</dd>
       <dt>Morale (6 months)</dt><dd>${mood.some(v => v != null) ? spark(mood) : '<span class="muted">No morale recorded</span>'}</dd>
       <dt>Tenure with you</dt><dd>${p.profile.since ? `${Math.max(0, Math.round(daysBetween(p.profile.since, today()) / 30.4))} months` : '—'}</dd></dl>`)}</div>`;
@@ -470,9 +470,9 @@ function addPipCheckin(pid, xid) {
 function secProfile(p) {
   const pr = p.profile, r = roleOf(p);
   const kv = rows => `<dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v || '—')}</dd>`).join('')}</dl>`;
-  return sectionHead('Profile', '', `<button class="btn" onclick="editProfile('${p.id}')">${ic('edit', 15)}Edit profile</button>`) +
-    `<div class="grid g2">${card('Employment', kv([['Employee ID', pr.empId], ['Designation', pr.designation], ['Grade', p.grade], ['Role', r?.name], ['Band', pr.band], ['Team / project', pr.team], ['Date of joining', pr.doj && fmt(pr.doj)], ['Reporting to you since', pr.since && fmt(pr.since)], ['Last promotion', pr.lastPromo && fmt(pr.lastPromo)], ['Work mode', pr.workMode], ['Location', pr.location]]))}
-    <div class="grid" style="align-content:start">${card('Contact', kv([['Email', pr.email], ['Phone', pr.phone]]))}${card('Background & aspirations', kv([['Experience', pr.exp && pr.exp + ' years'], ['Education', pr.education], ['Certifications', pr.certs], ['Responsibilities', pr.projects], ['Aspirations', pr.aspirations], ['Personal context', pr.personal]]))}</div></div>
+  return sectionHead('Profile', '', `<button class="btn" onclick="printPerson('${p.id}')">${ic('printer', 15)}One-page summary</button><button class="btn" onclick="editProfile('${p.id}')">${ic('edit', 15)}Edit profile</button>`) +
+    `<div class="grid g2">${card('Employment', kv([['Employee ID', pr.empId], ['Designation', pr.designation], ['Grade', p.grade], ['Role', r?.name], ['Band', pr.band], ['Team / project', pr.team], ['Date of joining', pr.doj && fmt(pr.doj)], ['Reporting to you since', pr.since && fmt(pr.since)], ['Last promotion', pr.lastPromo && fmt(pr.lastPromo)], ['Work mode', pr.workMode], ['Location', pr.location], ['1:1 frequency', pr.cadence || 'Monthly'], ['Probation', pr.probationEnd ? `${pr.confirmed ? 'Confirmed' : 'Ends'} ${fmt(pr.probationEnd)}` : '']]))}
+    <div class="grid" style="align-content:start">${card('Contact', kv([['Email', pr.email], ['Phone', pr.phone], ['Birthday', pr.dob ? parseD(pr.dob).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }) : '']]))}${card('Background & aspirations', kv([['Experience', pr.exp && pr.exp + ' years'], ['Education', pr.education], ['Certifications', pr.certs], ['Responsibilities', pr.projects], ['Aspirations', pr.aspirations], ['Personal context', pr.personal]]))}</div></div>
     ${card('Record', `<div class="row"><button class="btn" onclick="toggleArchive('${p.id}')">${ic('archive', 15)}${p.archived ? 'Restore to active team' : 'Archive (moved out of team)'}</button><button class="btn danger" onclick="delPerson('${p.id}')">${ic('trash', 15)}Delete permanently</button></div>`, { cls: 'mt', sub: 'Archiving keeps their history; deleting removes their encrypted file and documents.' })}`;
 }
 function toggleArchive(id) { const p = getP(id); p.archived = !p.archived; save(); render(); toast(p.archived ? 'Archived' : 'Restored'); }
@@ -525,7 +525,7 @@ function secReview(p) {
   }
   if (tab === 'evidence') return head + `<div class="grid g2">${reviewEvidence(p, R, r)}</div>`;
   const t = (label, value, sub) => `<div class="card tile"><span class="label">${label}</span><span class="value">${value}</span><span class="sub">${sub}</span></div>`;
-  return head + `<div class="grid g-auto">${t('Goal completion', pct(R.gs), `${plural(R.goals.length, 'goal')} · weighted`)}${FW() ? t('Competency average', R.cms.avg != null ? R.cms.avg.toFixed(2) : '—', `self ${R.css.avg != null ? R.css.avg.toFixed(2) : '—'} · of ${highV()}`) : ''}
+  return head + `<div class="grid g-auto">${t('Goal completion', pct(R.gs), `${plural(R.goals.length, 'goal')} · weighted`)}${FW() ? t('Competency average', R.cms.avg != null ? R.cms.avg.toFixed(2) : '—', `self ${R.css.avg != null ? R.css.avg.toFixed(2) : '—'} · of ${maxV()}`) : ''}
       ${t('KPI score', R.ks != null ? R.ks.toFixed(2) : '—', r ? `of 5 · ${esc(r.name)}` : 'No role')}${t('1:1s held', R.ones.length, `average morale ${R.avgM != null ? R.avgM.toFixed(1) : '—'}`)}${t('9-box', nb ? esc(nb.name) : '—', esc(p.ninebox.risk ? p.ninebox.risk + ' flight risk' : 'risk not set'))}</div>
     ${FW() ? `<div class="mt">${card(`Competencies${R.crec?.grade ? ` · grade ${esc(R.crec.grade)}` : ''}`, hasRatings(R.crec) ? `<table class="tbl"><thead><tr><th>Competency</th><th class="c">Self</th><th class="c">Yours</th></tr></thead><tbody>${FW().comps.map(c => { const it = R.crec.items[c.code] || {}; return `<tr><td>${esc(c.code)} · ${esc(c.name)}</td><td class="c">${ratingChip(it.self)}</td><td class="c">${ratingChip(it.rating)}</td></tr>`; }).join('')}</tbody></table>`
       : `<div class="card-body muted">Not assessed for this cycle. <a href="${personHref(p.id, 'competencies')}" onclick="V.compCycle='${ck}'">Assess now</a></div>`, { flush: hasRatings(R.crec) })}</div>` : ''}`;
@@ -559,5 +559,22 @@ function printReview(pid, ck) {
     ${card('Review', rv.rating ? `<dl class="kv"><dt>Overall rating</dt><dd>${esc(RATING[rv.rating])}</dd><dt>What went well</dt><dd>${esc(rv.well || '—')}</dd><dt>Areas to improve</dt><dd>${esc(rv.improve || '—')}</dd><dt>Focus for next cycle</dt><dd>${esc(rv.next || '—')}</dd><dt>Promotion readiness</dt><dd>${esc(rv.promo || '—')}</dd><dt>Comments</dt><dd>${esc(rv.comments || '—')}</dd></dl>` : '<span class="muted">Not written yet.</span>')}
     ${FW() && hasRatings(R.crec) ? card('Competencies', `<table class="tbl"><thead><tr><th>Competency</th><th>Self</th><th>Manager</th><th>Comment</th></tr></thead><tbody>${FW().comps.map(c => { const it = R.crec.items[c.code] || {}; return `<tr><td>${esc(c.code)} ${esc(c.name)}</td><td>${esc(it.self || '–')}</td><td>${esc(it.rating || '–')}</td><td>${esc(it.comment || '')}</td></tr>`; }).join('')}</tbody></table>`, { flush: true }) : ''}
     ${reviewEvidence(p, R, r)}<p class="small muted">Generated by Team Desk on ${fmt(today())}. Confidential.</p></div>`;
+  setTimeout(() => window.print(), 50);
+}
+
+/* ---------------- One-page summary (for handovers and skip-level conversations) ---------------- */
+function printPerson(pid) {
+  const p = getP(pid), c = cycleOf(), r = roleOf(p), rec = p.comp[c.key], nb = nineOf(p);
+  const gs = p.goals.filter(g => goalCycle(g) === c.key && g.status !== 'Dropped');
+  const wins = [...p.feedback].filter(x => ['Achievement', 'Kudos'].includes(x.type)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+  const kv = rows => `<dl class="kv">${rows.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
+  $('#print-root').innerHTML = `<div style="padding:8px 4px"><h1 style="font-size:22px;margin:0">${esc(p.profile.name)}</h1><p class="muted" style="margin:4px 0 14px">${esc([p.profile.designation, p.grade && 'Grade ' + p.grade, r?.name, p.profile.team].filter(Boolean).join(' · '))}</p>
+    ${card('Profile', kv([['Employee ID', p.profile.empId], ['Joined', p.profile.doj && fmt(p.profile.doj)], ['Reporting since', p.profile.since && fmt(p.profile.since)], ['Experience', p.profile.exp && p.profile.exp + ' years'], ['Certifications', p.profile.certs], ['Aspirations', p.profile.aspirations], ['Readiness', p.talent.readiness], ['Target role', p.talent.targetRole]]))}
+    ${card(`Goals · ${esc(c.short)}`, gs.length ? `<table class="tbl"><tbody>${gs.map(g => `<tr><td>${esc(g.title)}</td><td>${esc(g.status)}</td><td>${+g.progress || 0}%</td></tr>`).join('')}</tbody></table>` : '<span class="muted">No goals.</span>', { flush: !!gs.length })}
+    ${FW() && hasRatings(rec) ? card(`Competencies · grade ${esc(rec.grade || p.grade || '')} · 1–${maxV()}`, `<table class="tbl"><thead><tr><th>Competency</th><th>Self</th><th>Manager</th></tr></thead><tbody>${FW().comps.map(cp => { const it = rec.items[cp.code] || {}; return `<tr><td>${esc(cp.code)} ${esc(cp.name)}</td><td>${esc(it.self || '–')}</td><td>${esc(it.rating || '–')}</td></tr>`; }).join('')}</tbody></table>`, { flush: true }) : ''}
+    ${card('Strengths & development areas', `<b class="small">Strengths</b><ul>${p.strengths.map(x => `<li>${esc(x.text)}</li>`).join('') || '<li class="muted">—</li>'}</ul><b class="small">Development areas</b><ul>${p.devAreas.map(x => `<li>${esc(x.text)}</li>`).join('') || '<li class="muted">—</li>'}</ul>`)}
+    ${card('Recent achievements', wins.length ? `<ul>${wins.map(x => `<li>${fmt(x.date)} — ${esc(x.text.split('\n')[0])}</li>`).join('')}</ul>` : '<span class="muted">None logged.</span>')}
+    ${card('Development plan', p.idp.filter(i => i.status !== 'Done').length ? `<ul>${p.idp.filter(i => i.status !== 'Done').map(i => `<li>${esc(i.title)} (${esc(i.type)}${i.due ? ', ' + fmt(i.due) : ''})</li>`).join('')}</ul>` : '<span class="muted">No open items.</span>')}
+    <p class="small muted">Generated by Team Desk on ${fmt(today())}. Confidential — excludes private notes, flight risk and improvement-plan details.</p></div>`;
   setTimeout(() => window.print(), 50);
 }

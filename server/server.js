@@ -22,7 +22,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const VERSION = '3.1.0';
+const VERSION = '3.3.0';
 const ROOT = path.resolve(__dirname, '..');
 const APP_DIR = path.join(ROOT, 'app');
 const args = process.argv.slice(2);
@@ -47,6 +47,7 @@ let key = null;
 let lastActivity = Date.now();
 let failures = 0, blockedUntil = 0;
 let snapshotDay = null;
+let dataRev = 1;  // bumped when data is changed from outside the browser (demo loader, restore)
 
 /* ---------------------------------------------------------- helpers */
 function readJSON(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } }
@@ -251,8 +252,9 @@ route('GET', '/api/ping', () => ({ app: 'teamdesk', version: VERSION }), { auth:
 
 route('GET', '/api/status', () => ({
   app: 'teamdesk', version: VERSION, configured: configured(), dataDir: dataDir() || null, unlocked: !!key,
-  autoLockMinutes: config.autoLockMinutes ?? 15, platform: process.platform, home: os.homedir(), sep: path.sep, node: process.version,
+  autoLockMinutes: config.autoLockMinutes ?? 15, platform: process.platform, home: os.homedir(), sep: path.sep, node: process.version, dataRev,
 }));
+route('POST', '/api/data/changed', () => { dataRev++; return { dataRev }; }, { unlocked: true });
 
 route('GET', '/api/fs/list', ({ url }) => listDir(url.searchParams.get('path')));
 route('POST', '/api/fs/mkdir', async ({ body }) => {
@@ -345,7 +347,7 @@ route('DELETE', '/api/files/:owner/:id', async ({ params }) => { await fsp.rm(P.
 
 route('GET', '/api/backups', () => listBackups(), { unlocked: true });
 route('POST', '/api/backups', async () => { const n = `${localDay()}_${localTime()}_manual`; await snapshot(n); return { name: n }; }, { unlocked: true });
-route('POST', '/api/backups/restore', async ({ body }) => { await restore(body.name); return { ok: true }; }, { unlocked: true });
+route('POST', '/api/backups/restore', async ({ body }) => { await restore(body.name); dataRev++; return { ok: true }; }, { unlocked: true });
 
 route('POST', '/api/folder/move', async ({ body }) => {
   const target = path.resolve(String(body.target || ''));

@@ -68,7 +68,7 @@ async function loadBackups() {
 async function backupNow() { try { await Store.flush(); await api('POST', '/api/backups'); toast('Snapshot saved'); loadBackups(); } catch (e) { toast(e.message, 'err'); } }
 function restoreBackup(name) {
   confirmBox({ title: 'Restore this snapshot?', msg: `All records will be replaced with the snapshot <b>${esc(name)}</b>. A snapshot of the current state is taken first, so you can undo this.`, yes: 'Restore', danger: false,
-    onYes: async () => { await Store.flush(); await api('POST', '/api/backups/restore', { name }); await Store.load(); toast('Snapshot restored'); } });
+    onYes: async () => { await Store.flush(); await api('POST', '/api/backups/restore', { name }); App.dataRev = (await api('GET', '/api/status')).dataRev; await Store.load(); toast('Snapshot restored'); } });
 }
 function moveFolder() {
   openModal({ title: 'Move data to another folder', sub: 'Everything is copied to the new location and Team Desk switches to it. The old folder is left as it is, so you can delete it once you’ve checked.', size: 'wide', saveText: 'Move here',
