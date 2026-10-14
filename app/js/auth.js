@@ -4,7 +4,24 @@
    ========================================================= */
 'use strict';
 
-const AUTH = { tab: 'signin', email: '' };
+const AUTH = { tab: 'signin', email: '', pwOpen: false };
+
+/* Microsoft sign-in comes back to /?sso_error=…&who=… when it can't let someone in */
+(function readSsoError() {
+  const q = new URLSearchParams(location.search), code = q.get('sso_error');
+  if (!code) return;
+  const who = esc(q.get('who') || 'that account');
+  AUTH.ssoError = ({
+    'no-access': `You’re signed in to Microsoft as <b>${who}</b>, but you don’t have access to Team Desk yet. Ask a Team Desk administrator to give you a role.`,
+    'not-in-group': `<b>${who}</b> isn’t a member of the Team Desk group in Microsoft Entra ID, so access is blocked. Ask your administrator.`,
+    'disabled': `The Team Desk account for <b>${who}</b> is disabled. Contact your Team Desk administrator.`,
+    'no-role': `<b>${who}</b> has no role in Team Desk yet. Ask a Team Desk administrator to assign one.`,
+    'expired': 'The Microsoft sign-in took too long, or was started in another tab. Please try again.',
+    'check-failed': 'Team Desk couldn’t check your group membership with Microsoft just now. Please try again in a minute.',
+    'not-configured': 'Microsoft sign-in isn’t switched on for this server.',
+  })[code] || 'Microsoft sign-in didn’t complete. Please try again. If it keeps failing, ask your administrator to check the Microsoft sign-in settings.';
+  history.replaceState(null, '', location.pathname + location.hash);
+})();
 
 function authShell(title, sub, body, foot = '') {
   gate(`<div class="gate-head" style="padding-top:26px"><div class="brand-mark" style="width:38px;height:38px;font-size:12px">TD</div><div><h2 style="font-size:18px">${title}</h2><div class="small muted">${sub}</div></div></div>
@@ -19,7 +36,7 @@ function showAuth(tab, msg) {
   const note = msg ? callout('info', esc(msg)) : '';
   if (AUTH.tab === 'first') {
     return authShell('Set up Team Desk', 'Create the first account — it becomes the administrator', `<form class="gate-body" onsubmit="event.preventDefault();doRegister(true)">
-      ${callout('info', 'You are the first person here, so your account will be the <b>Administrator</b> and a <b>Line manager</b>. After this, colleagues register themselves and you approve them and choose their group.')}
+      ${callout('info', 'You are the first person here, so your account will be the <b>Administrator</b>: you approve accounts and manage settings. Administrators don’t have reportees — line managers and people managers register their own accounts, and you approve them.')}
       ${regFields(false)}<div id="au-err"></div><button class="btn primary" id="au-btn" type="submit">Create administrator account</button></form>`,
       `<span class="small muted">${ic('shield', 13)} Encrypted on the server</span><span class="small muted">Version ${esc(APP_VERSION)}</span>`);
   }
@@ -30,10 +47,22 @@ function showAuth(tab, msg) {
       ${regFields(true)}<div id="au-err"></div><button class="btn primary" id="au-btn" type="submit">Register</button></form>`,
       `<span class="small muted">${st.allowedDomains ? `Only ${esc(st.allowedDomains)} addresses` : 'Use your work email'}</span><button class="linkbtn small" type="button" onclick="showAuth('signin')">I already have an account</button>`);
   }
-  authShell('Sign in to Team Desk', 'Your manager workspace', `${tabs}<form class="gate-body" onsubmit="event.preventDefault();doLogin()">${note}
+  const pwForm = `<form class="gate-body" onsubmit="event.preventDefault();doLogin()" style="${st.sso ? 'padding-top:4px' : ''}">${st.sso ? '' : note}
       ${fld('Work email', 'email', AUTH.email, { type: 'email', attrs: 'id="au-email" autocomplete="username" required' })}
       ${fld('Password', 'password', '', { type: 'password', attrs: 'id="au-pw" autocomplete="current-password" required' })}
-      <div id="au-err"></div><button class="btn primary" id="au-btn" type="submit">Sign in</button></form>`,
+      <div id="au-err"></div><button class="btn ${st.sso ? '' : 'primary'}" id="au-btn" type="submit">Sign in${st.sso ? ' with password' : ''}</button></form>`;
+  if (st.sso) {
+    const showPw = st.passwordLogin || AUTH.pwOpen;
+    authShell('Sign in to Team Desk', 'Your manager workspace', `${st.registrationOpen ? tabs : ''}<div class="gate-body">${note}${AUTH.ssoError ? callout('bad', AUTH.ssoError) : ''}
+        <a class="btn primary sso-btn" href="/auth/azure/login" onclick="this.classList.add('busy');this.querySelector('span').textContent='Opening Microsoft sign-in…'">${ic('key', 16)}<span>Sign in with Microsoft</span></a>
+        <div class="xs muted" style="text-align:center">Use your work account. Access is given by your Team Desk administrator.</div></div>
+      ${showPw ? `<div class="sso-or"><span>${st.passwordLogin ? 'or use a Team Desk password' : 'administrator sign-in'}</span></div>${pwForm}` : ''}`,
+      st.passwordLogin ? `<span class="small muted">Forgot your Team Desk password? Ask your administrator to reset it.</span>`
+        : `<span class="small muted">${ic('shield', 13)} Microsoft Entra ID</span>${AUTH.pwOpen ? '' : `<button class="linkbtn small" type="button" onclick="AUTH.pwOpen=true;showAuth('signin')">Administrator sign-in with password</button>`}`);
+    AUTH.ssoError = '';
+    return setTimeout(() => (AUTH.pwOpen ? $('#au-email') : null)?.focus(), 30);
+  }
+  authShell('Sign in to Team Desk', 'Your manager workspace', `${tabs}${pwForm}`,
     `<span class="small muted">Forgot your password? Ask your Team Desk administrator to reset it.</span>`);
   setTimeout(() => (AUTH.email ? $('#au-pw') : $('#au-email'))?.focus(), 30);
 }

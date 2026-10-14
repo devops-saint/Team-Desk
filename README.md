@@ -1,4 +1,4 @@
-# Team Desk 4.0.1
+# Team Desk 4.1
 
 An encrypted workspace for managing your reportees: 1:1s, your organisation's competency matrix, technical skills, KPIs, goals, development plans, talent and retention, improvement plans, half-yearly reviews and calibration, plus tools for assessing your own leadership.
 
@@ -8,7 +8,7 @@ Team Desk comes in two editions. Both are in this folder and share the same app:
 | --- | --- | --- |
 | For | One manager | All the managers in a team or organisation |
 | Runs on | Your own computer (Mac or Windows) | A company server, as plain Node.js or Docker |
-| Sign-in | One password that unlocks your data | Each person registers once, then signs in with email and password |
+| Sign-in | One password that unlocks your data | **Sign in with Microsoft** (Entra ID / Azure AD), or a Team Desk email and password |
 | Access | Only you | **Line managers** see only their own reportees. **People managers** see every reportee, view only. **Administrators** approve accounts. |
 | Encryption | With your password, in a folder you choose | With a server key, kept separate from the data |
 | Start it with | `Start Team Desk.command` / `.bat`, or `npm start` | `Start Team Desk Server.command` / `.bat`, `npm run server`, or `docker compose up -d` |
@@ -193,11 +193,12 @@ The central edition runs one Team Desk for everyone. Each person registers once 
 | --- | --- | --- |
 | **Line manager** | Only their own reportees | Everything about their own reportees |
 | **People manager** | Every reportee of every line manager | Nothing (view only); can download reports |
-| **Administrator** | Accounts, groups, settings and the audit log. Reportee names only on the ownership page. | Approves accounts, sets groups, moves reportees between line managers, edits the organisation configuration |
+| **Administrator** | Accounts, groups, settings and the audit log. Reportee names only on the ownership page. **Has no reportees.** | Approves accounts, sets groups, moves reportees between line managers, edits the organisation configuration |
 
 - **Line managers** work exactly as in the personal edition, but only with their own team.
 - **People managers** get an **Organisation** dashboard: every team at a glance, urgent items across the organisation, a talent snapshot, all reportees with a line-manager filter, and every Insights page across all teams. A reportee's full record opens read-only, with a **Download report** button.
-- **Administrator** is a role on top of a group. An administrator who is also a line manager sees the **Administration** menu as well.
+- **An administrator never has reportees**, so they can't be in the Line manager group, and no reportee can be moved to them. That way people managers never see an "administrator's team". An administrator can also be a people manager (they then see the Administration menu inside the People manager profile); otherwise they sign in to an Administration-only view. Someone who both administers Team Desk and manages a team uses two accounts.
+- **Upgrading from 4.0.0:** if an administrator was also a line manager, the server removes their Line manager group when it starts. Any reportees they owned are hidden from people managers and show as **Needs a new line manager** under **Reportee ownership** until you move them.
 - **Someone in both Line manager and People manager** chooses a profile after signing in, and can switch any time with **Switch profile** in the sidebar.
 
 ### Privacy rules (enforced by the server, not just hidden in the browser)
@@ -215,7 +216,7 @@ Choose one of these:
 - **Node.js** (18 or newer): from this folder, run `npm run server` (or `node server/central.js`). On a Mac or Windows machine you can also double-click **`Start Team Desk Server`**.
 - **Docker:** run `docker compose up -d`, then `docker compose logs -f` to see the address.
 
-The server listens on port **8080** by default. Open `http://<server>:8080` and **register: the first account becomes the administrator** (and a line manager). After that, colleagues register themselves. You'll see a badge on **Users & access**: approve each person and choose their group. A person who registered can't sign in until they are approved.
+The server listens on port **8080** by default. Open `http://<server>:8080` and **register: the first account becomes the administrator**, with no reportees. After that, line managers and people managers register themselves. You'll see a badge on **Users & access**: approve each person and choose their group. A person who registered can't sign in until they are approved.
 
 ### Use HTTPS
 
@@ -235,6 +236,34 @@ server {
                proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header X-Forwarded-Proto https; }
 }
 ```
+
+### Microsoft sign-in (Entra ID / Azure AD)
+
+People can sign in with their work Microsoft account instead of a Team Desk password. The administrator decides who gets in and with which role, picking people from one Entra ID security group.
+
+**1. In Azure** (needs an Entra ID administrator, about 5 minutes):
+
+1. **Microsoft Entra admin center › App registrations › New registration.** Name it "Team Desk", choose *Accounts in this organizational directory only*, and add a redirect URI: platform **Web**, `https://<your Team Desk address>/auth/azure/callback`. Team Desk shows the exact value to copy under **Administration › Server settings**. Azure accepts plain `http://` only for `localhost`, so for a quick test on your laptop open Team Desk as `http://localhost:8080`.
+2. **Certificates & secrets › New client secret.** Copy the secret's **Value**.
+3. **API permissions › Add a permission › Microsoft Graph › Application permissions › `GroupMember.Read.All`**, then **Grant admin consent**. Team Desk uses this only to list the group's members and to check membership when someone signs in.
+4. **Groups.** Create or choose a security group for Team Desk users (for example "Team Desk Users") and copy its **Object ID**. Nested groups count too.
+
+**2. In Team Desk** (as administrator):
+
+1. Go to **Administration › Server settings › Microsoft sign-in** and fill in the directory (tenant) ID, application (client) ID, client secret and group Object ID. Click **Save**, then **Test connection**. It should show the group's name and how many members it has.
+2. Tick **Use Microsoft sign-in** and click **Save**.
+3. Open **Administration › Microsoft directory**. Everyone in the group is listed, and you can search by name, email, job title or department. Click **Give access**, then tick **Line manager**, **People manager** and/or **Administrator**. That person can now click **Sign in with Microsoft**.
+   - Someone who already has a Team Desk account with the same email shows as **Not linked**. **Link & set role** connects the two, and they keep their reportees and history.
+   - To take access away, disable the account under **Users & access**. Removing someone from the Entra ID group also blocks them at their next sign-in.
+
+**How it behaves:**
+
+- **Who can sign in:** only people who have a Team Desk role **and** are still in the group. Anyone else signed in to Microsoft is told they don't have access yet. Every refusal is in the audit log.
+- **Passwords:** by default, Team Desk passwords keep working alongside Microsoft sign-in. Untick **Also allow Team Desk passwords for everyone** to make Microsoft the only way in. Administrators can still sign in with a password as a fallback, so you can't lock yourself out. Registration through the sign-in page also switches off.
+- **Under the hood:** OpenID Connect with PKCE. The server checks Microsoft's token signature, tenant, application, expiry and nonce, and stores the client secret encrypted in `system.tde`. No extra software is needed.
+- **Settings in environment variables:** instead of the settings page, you can set `TEAMDESK_AAD_TENANT_ID`, `TEAMDESK_AAD_CLIENT_ID`, `TEAMDESK_AAD_CLIENT_SECRET`, `TEAMDESK_AAD_GROUP_ID` and `TEAMDESK_PUBLIC_URL`. These are useful with Docker secrets, and the page then shows those fields as set by the server.
+- **Government and China clouds:** set `TEAMDESK_AAD_AUTHORITY` (for example `https://login.microsoftonline.us`) and `TEAMDESK_GRAPH_URL`.
+- **Signing out** of Team Desk does not sign you out of Microsoft.
 
 ### Data, server key and backups
 
@@ -266,6 +295,7 @@ server {
 | `--tls-cert`, `--tls-key` | `TEAMDESK_TLS_CERT`, `TEAMDESK_TLS_KEY` | off |
 | `--trust-proxy` | `TEAMDESK_TRUST_PROXY=1` | off |
 | `--allowed-hosts teamdesk.company.com` | `TEAMDESK_ALLOWED_HOSTS` | any |
+| — | `TEAMDESK_AAD_TENANT_ID`, `TEAMDESK_AAD_CLIENT_ID`, `TEAMDESK_AAD_CLIENT_SECRET`, `TEAMDESK_AAD_GROUP_ID`, `TEAMDESK_PUBLIC_URL` | Microsoft sign-in (otherwise set in Server settings) |
 | — | `TEAMDESK_AI_URL` (an Ollama server elsewhere) | Ollama on the same machine |
 
 In the app, **Administration › Server settings** controls these:
@@ -279,6 +309,7 @@ In the app, **Administration › Server settings** controls these:
 
 ### Everyday administration
 
+- **Give access to people from Microsoft Entra ID** in **Administration › Microsoft directory**: search the group and set each person's role (see "Microsoft sign-in" above).
 - **Approve or reject** registrations in **Administration › Users & access**.
 - **Change groups.** Use **Edit** on an account. A line manager who still owns reportees can't lose the Line manager group until their reportees are moved.
 - **Reset a password.** The person gets a temporary password (shown once) and must choose a new one when they sign in.
@@ -295,16 +326,51 @@ In the app, **Administration › Server settings** controls these:
 
 ### Demo data for the central server
 
-On a demo server, run `npm run demo:central` (or double-click **`Load Central Demo Data`**). It uses `--url` to point at another address. It creates:
+Start the central server, then run one of the three demo setups from a second Terminal window. The password for every demo account is `TeamDesk@Demo1`.
 
-- four accounts (password `TeamDesk@Demo1` for all):
-  - `anita.desai@demo.example`: line manager, people manager and administrator, so she is asked to choose a profile;
-  - `kavya.menon@demo.example`: line manager;
-  - `meera.pillai@demo.example`: people manager (HR);
-  - `rahul.verma@demo.example`: waiting for approval;
-- the same six fictional reportees as the personal demo, split between Anita and Kavya.
+| Setup | Command (or double-click) | Accounts |
+| --- | --- | --- |
+| **Case 1**: administrator + one user who is **both** line manager and people manager | `npm run demo:central:case1` (`Load Central Demo - Case 1`) | An administrator, and `kavya.menon@demo.example`. Kavya owns all six reportees and chooses a profile after signing in: Line manager (edit her team) or People manager (Organisation view, view only). |
+| **Case 2**: administrator + one user who is **only** a line manager | `npm run demo:central:case2` (`Load Central Demo - Case 2`) | An administrator, and `kavya.menon@demo.example`. Kavya goes straight to her six reportees, with no profile choice and no Administration menu. |
+| **Full**: every group, two teams | `npm run demo:central` (`Load Central Demo Data`) | `sanjay.kapoor@` (administrator), `anita.desai@` (line + people manager), `kavya.menon@` (line manager), `meera.pillai@` (people manager), `rahul.verma@` (waiting for approval). The six reportees are split between Anita and Kavya. |
 
-It refuses to run on a server that has real reportees. To remove it again, run `npm run demo:central:remove`.
+**Accounts already exist** (your own administrator, line managers and people manager): no demo accounts are needed. There are **two separate demo teams**, with the same situations but different fictional people:
+
+| Demo team | Reportees |
+| --- | --- |
+| **1** | Asha Rao (C2), Rohan Kulkarni (C3), Neha Iyer (S2), Priya Menon (C1), Vikram Singh (S1), Arjun Mehta (A2) |
+| **2** | Divya Sharma (C2), Karthik Reddy (C3), Sneha Patil (S2), Ananya Ghosh (C1), Farhan Qureshi (S1), Nikhil Joshi (A2) |
+
+Give each team to an existing line manager with `--email`:
+
+```
+node scripts/seed-central.js --admin-email admin@company.com --dataset 1 --email manager1@company.com
+node scripts/seed-central.js --admin-email admin@company.com --dataset 2 --email manager2@company.com
+```
+
+- **Which line manager gets what:** you can give both teams to the same line manager, use only one team, or list several emails (`--email a@company.com,b@company.com`) to split one team.
+- **People managers** see every team automatically in the Organisation view, view only.
+- **Passwords and accounts:** only the administrator's password is asked for, and your accounts are not changed. A temporary "Demo Loader" account adds the reportees and is removed straight after. That's why their Reporting history shows "moved from Demo Loader".
+- **Running it again** for a team refreshes it, and moves it if you give a different email.
+- **Double-click version:** **`Load Central Demo - Existing Accounts`** asks for the administrator, the team and the line manager.
+- **To remove one team,** add `--remove --dataset 2`. To remove all demo data, use `--remove` alone. Add `--admin-email` to either.
+- **If registration is closed or limited to certain email domains,** open it for a minute in **Administration › Server settings**, or add `--domain company.com`.
+
+**The administrator account:**
+
+- **On a new server with no accounts,** the demo creates the administrator for you: `sanjay.kapoor@demo.example`, an administrator with no reportees.
+- **If you already registered yourself,** your account is the administrator, and no demo administrator is created. Add your email to the command and it will ask for your password, for example:
+
+  ```
+  node scripts/seed-central.js --scenario both --admin-email you@company.com
+  ```
+
+**Switching and options:**
+
+- **To switch setups,** just run another one. The demo reportees move to the right manager, and demo accounts the new setup doesn't use are removed.
+- **If the server isn't on port 8080,** add `--url http://localhost:<port>`.
+- **If the server already has real reportees,** the loader refuses to run. Use a separate demo server instead.
+- **To remove everything demo,** run `node scripts/seed-central.js --remove`, adding `--admin-email you@company.com` if you used your own account.
 
 ## 10. Coming from the browser-only version (v1/v2)
 
@@ -346,4 +412,5 @@ git status --ignored --short   # lines starting with !! are ignored
   - Central server: an administrator resets it under **Users & access**.
 - **Central server says the key doesn't match the data**: start it with the key that was created together with that data folder (`--key-file` or `TEAMDESK_KEY_FILE`).
 - **Everyone was signed out at once**: the central server was restarted. Sign in again; nothing saved is lost.
+- **"Microsoft sign-in didn't complete"**: open **Administration › Server settings › Test connection**. Check that the redirect URI in the app registration exactly matches the one Team Desk shows, and that the client secret hasn't expired. Microsoft's own error text appears in the audit log as "Microsoft sign-in failed".
 - **People can't register**: an administrator may have closed registration, or limited it to certain email domains, in **Administration › Server settings**.

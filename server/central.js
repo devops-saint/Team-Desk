@@ -35,8 +35,9 @@ const {
   writeAtomic, listTde, readBody, sendJSON, sendFile, serveStatic, makeRouter, SCRYPT_PARAMS,
   AI_DEFAULT_URL, loopbackUrl, aiStatus, aiChat,
 } = require('./lib/shared');
+const { createAzure, GUID } = require('./lib/azure');
 
-const VERSION = '4.0.1';
+const VERSION = '4.1.0';
 const args = process.argv.slice(2);
 const argVal = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : d; };
 const flag = (k, env) => args.includes(k) || ['1', 'true', 'yes'].includes(String(process.env[env] || '').toLowerCase());
@@ -51,7 +52,12 @@ const TLS_KEY = argVal('--tls-key', env('TEAMDESK_TLS_KEY', ''));
 const TRUST_PROXY = flag('--trust-proxy', 'TEAMDESK_TRUST_PROXY');
 const SECURE_COOKIE = flag('--secure-cookie', 'TEAMDESK_SECURE_COOKIE');
 const ALLOWED_HOSTS = new Set(String(argVal('--allowed-hosts', env('TEAMDESK_ALLOWED_HOSTS', ''))).split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
-const AI_URL_FIXED = env('TEAMDESK_AI_URL', '');   // set by the server operator; may point to another machine
+const AI_URL_FIXED = env('TEAMDESK_AI_URL', '');
+/* Microsoft Entra ID (Azure AD) sign-in: values here override Administration › Server settings */
+const AAD_ENV = { tenantId: env('TEAMDESK_AAD_TENANT_ID', ''), clientId: env('TEAMDESK_AAD_CLIENT_ID', ''), clientSecret: env('TEAMDESK_AAD_CLIENT_SECRET', ''),
+  groupId: env('TEAMDESK_AAD_GROUP_ID', ''), publicUrl: env('TEAMDESK_PUBLIC_URL', '') };
+const AAD_AUTHORITY = env('TEAMDESK_AAD_AUTHORITY', 'https://login.microsoftonline.com');   // other clouds, e.g. https://login.microsoftonline.us
+const GRAPH_URL = env('TEAMDESK_GRAPH_URL', 'https://graph.microsoft.com');   // set by the server operator; may point to another machine
 
 const ID_RX = /^[A-Za-z0-9_-]{1,80}$/;
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -127,8 +133,18 @@ async function initData() {
     await fsp.writeFile(path.join(DATA_DIR, 'README.txt'), `TEAM DESK CENTRAL DATA FOLDER\n=============================\nEverything here is encrypted with the server key (kept separately). Do not edit or rename files.\n\n  central.json   key check (no data)\n  system.tde     user accounts and server settings\n  org.tde        organisation configuration (competency framework, roles, guidelines)\n  managers/      each manager's personal settings and leadership notes\n  reportees/     one encrypted file per reportee\n  files/         uploaded documents, per reportee\n  audit/         encrypted audit log, one file per month\n  backups/       daily snapshots (last ${KEEP_DAILY} days)\n`);
   }
   SYS = (await readEncJSON(P.system())) || { users: [], settings: {} };
-  SYS.settings = { registrationOpen: true, allowedDomains: '', sessionMinutes: 30, pmSeesPrivate: false, ai: { enabled: false, url: AI_DEFAULT_URL, model: '' }, ...SYS.settings };
+  SYS.settings = { registrationOpen: true, allowedDomains: '', sessionMinutes: 30, pmSeesPrivate: false, ai: { enabled: false, url: AI_DEFAULT_URL, model: '' },
+    allowPasswordLogin: true, ...SYS.settings };
+  SYS.settings.sso = { enabled: false, tenantId: '', clientId: '', clientSecret: '', groupId: '', publicUrl: '', ...(SYS.settings.sso || {}) };
   await buildIndex();
+  /* administrators don't have reportees: earlier versions made the first account a line manager too */
+  let changed = false;
+  for (const u of SYS.users) if (u.admin && (u.groups || []).includes('lm')) {
+    u.groups = u.groups.filter(g => g !== 'lm'); changed = true;
+    const n = [...IDX.values()].filter(r => r.managerId === u.id).length;
+    console.log(`  Note: ${u.name} is an administrator, so the Line manager group was removed.${n ? ` ${n} reportee(s) they owned are hidden from people managers until moved — see Administration › Reportee ownership.` : ''}`);
+  }
+  if (changed) await saveSys();
 }
 const saveSys = () => writeEnc(P.system(), Buffer.from(JSON.stringify(SYS)));
 async function buildIndex() {
@@ -180,7 +196,21 @@ function profilesOf(u) {
   return p.length ? p : u.admin ? ['admin'] : [];
 }
 const pubUser = u => u && ({ id: u.id, email: u.email, name: u.name, status: u.status, admin: !!u.admin, groups: u.groups || [], created: u.created,
-  approvedAt: u.approvedAt || '', approvedBy: u.approvedBy || '', lastLogin: u.lastLogin || '', mustChange: !!u.mustChange, note: u.note || '' });
+  approvedAt: u.approvedAt || '', approvedBy: u.approvedBy || '', lastLogin: u.lastLogin || '', mustChange: !!u.mustChange, note: u.note || '',
+  sso: !!u.aad, hasPassword: !!u.pw, jobTitle: u.jobTitle || '', department: u.department || '' });
+
+/* ---------------------------------------------------------- Microsoft Entra ID (Azure AD) */
+const aadCfg = () => { const st = SYS.settings.sso || {}, pick = k => AAD_ENV[k] || st[k] || '';
+  return { tenantId: pick('tenantId'), clientId: pick('clientId'), clientSecret: pick('clientSecret'), groupId: pick('groupId'), publicUrl: pick('publicUrl'), authority: AAD_AUTHORITY, graph: GRAPH_URL }; };
+const AZ = createAzure(aadCfg);
+const ssoOn = () => !!SYS.settings.sso?.enabled && !AZ.ready();
+const passwordLoginOn = () => !ssoOn() || SYS.settings.allowPasswordLogin !== false;
+const findOid = oid => SYS.users.find(u => u.aad?.oid === oid);
+function publicBase(req) {
+  const c = aadCfg();
+  if (c.publicUrl) return c.publicUrl.replace(/\/+$/, '');
+  return `${isHttps(req) ? 'https' : 'http'}://${String(req.headers.host || 'localhost')}`;
+}
 async function hashPw(pw) {
   const salt = crypto.randomBytes(16);
   const h = await deriveKey(pw, salt, SCRYPT_PARAMS, 32);
@@ -276,7 +306,8 @@ const { route, match } = makeRouter({ access: 'ready', raw: false, profiles: nul
 
 function statusPayload(ses) {
   const u = ses?.u, s = ses?.s;
-  const base = { app: 'teamdesk', mode: 'central', version: VERSION, hasUsers: SYS.users.length > 0, registrationOpen: !!SYS.settings.registrationOpen || !SYS.users.length,
+  const base = { app: 'teamdesk', mode: 'central', version: VERSION, hasUsers: SYS.users.length > 0, registrationOpen: (!!SYS.settings.registrationOpen && passwordLoginOn()) || !SYS.users.length,
+    sso: ssoOn(), passwordLogin: passwordLoginOn(),
     allowedDomains: SYS.settings.allowedDomains || '', node: process.version, platform: process.platform };
   if (!u) return { ...base, signedIn: false };
   return { ...base, signedIn: true, user: pubUser(u), profiles: profilesOf(u), profile: s.profile, csrf: s.csrf, rev: revFor(s), mustChange: !!u.mustChange,
@@ -290,6 +321,7 @@ route('GET', '/api/status', ({ ses }) => statusPayload(ses), { access: 'public' 
 /* ---------- registration & sign-in ---------- */
 route('POST', '/api/auth/register', async ({ body, req, res, ip }) => {
   limitCount('reg:' + ip, 10, 3600000);
+  if (SYS.users.length && !passwordLoginOn()) fail(403, 'Accounts are created from Microsoft Entra ID. Ask your Team Desk administrator for access, then use “Sign in with Microsoft”.');
   const name = String(body.name || '').trim().slice(0, 120), email = String(body.email || '').trim().toLowerCase();
   if (!name) fail(400, 'Enter your full name.');
   if (!EMAIL_RX.test(email) || email.length > 200) fail(400, 'Enter a valid work email address.');
@@ -299,7 +331,7 @@ route('POST', '/api/auth/register', async ({ body, req, res, ip }) => {
   if (!first && !domainAllowed(email)) fail(403, `Registration is limited to ${SYS.settings.allowedDomains} email addresses.`);
   if (findEmail(email)) fail(409, 'An account with this email already exists. Sign in instead, or ask an administrator to reset your password.');
   const u = { id: 'u' + crypto.randomBytes(6).toString('hex'), email, name, pw: await hashPw(body.password), status: first ? 'active' : 'pending',
-    admin: first, groups: first ? ['lm'] : [], requested: GROUPS.filter(g => (body.requested || []).includes(g)), note: String(body.note || '').slice(0, 300),
+    admin: first, groups: [], requested: GROUPS.filter(g => (body.requested || []).includes(g)), note: String(body.note || '').slice(0, 300),
     created: new Date().toISOString(), approvedAt: first ? new Date().toISOString() : '', approvedBy: first ? 'first account' : '' };
   SYS.users.push(u); await saveSys();
   await audit({ action: first ? 'register-first-admin' : 'register', ...actor(u), target: u.email });
@@ -314,12 +346,14 @@ route('POST', '/api/auth/login', async ({ body, req, res, ip }) => {
   const email = String(body.email || '').trim().toLowerCase();
   limitCheck('ip:' + ip); limitCheck('em:' + email);
   const u = findEmail(email);
+  if (u && !u.pw && u.aad) fail(400, 'This account signs in with Microsoft. Use “Sign in with Microsoft”.');
   const ok = await verifyPw(u?.pw, String(body.password || ''));
   if (!ok) { limitFail('ip:' + ip); limitFail('em:' + email); await audit({ action: 'login-failed', target: email, ip }); fail(401, 'Incorrect email or password.'); }
   limitClear('em:' + email); limitClear('ip:' + ip);
   if (u.status === 'pending') fail(403, 'Your registration is waiting for an administrator to approve it. You’ll be able to sign in once it is approved.');
   if (u.status === 'disabled') fail(403, 'This account is disabled. Contact your Team Desk administrator.');
   if (u.status !== 'active') fail(403, 'This account cannot sign in. Contact your Team Desk administrator.');
+  if (!passwordLoginOn() && !u.admin) fail(403, 'Password sign-in is turned off. Use “Sign in with Microsoft”.');
   if (!profilesOf(u).length) fail(403, 'Your account has no group yet. Ask an administrator to add you to Line manager or People manager.');
   const { sid } = newSession(u, req);
   res.setHeader('Set-Cookie', cookie(req, sid));
@@ -345,6 +379,7 @@ route('POST', '/api/auth/profile', async ({ body, ses }) => {
 }, { access: 'session' });
 
 route('POST', '/api/auth/password', async ({ body, ses, ip }) => {
+  if (!ses.u.pw) fail(409, 'You sign in with Microsoft, so there is no Team Desk password to change.');
   limitCheck('pw:' + ses.u.id);
   if (!await verifyPw(ses.u.pw, String(body.current || ''))) { limitFail('pw:' + ses.u.id); fail(403, 'Your current password is not correct.'); }
   checkPassword(body.next, ses.u.email);
@@ -363,14 +398,16 @@ route('GET', '/api/data', async ({ ses }) => {
   const org = await readEncJSON(P.org()), me = await readEncJSON(P.me(u.id));
   const reportees = [], managers = {};
   if (s.profile === 'lm' || s.profile === 'pm') {
+    const adminIds = new Set(SYS.users.filter(x => x.admin).map(x => x.id));
     for (const [id, x] of IDX) {
       if (s.profile === 'lm' && x.managerId !== u.id) continue;
+      if (s.profile === 'pm' && adminIds.has(x.managerId)) continue;   // administrators have no team; anything still tagged to one waits for an administrator to move it
       try { const p = JSON.parse((await readEnc(P.rep(id))).toString()); reportees.push(s.profile === 'pm' ? forPeopleManager(p) : p); }
       catch (e) { console.error(`Could not read reportee ${id}: ${e.message}`); }
     }
   }
   if (s.profile === 'pm') {
-    for (const x of SYS.users) if ((x.groups || []).includes('lm') || [...IDX.values()].some(r => r.managerId === x.id)) managers[x.id] = { name: x.name, email: x.email, status: x.status };
+    for (const x of SYS.users) if (!x.admin && ((x.groups || []).includes('lm') || [...IDX.values()].some(r => r.managerId === x.id))) managers[x.id] = { name: x.name, email: x.email, status: x.status };
     if (!s.auditedAll || Date.now() - s.auditedAll > 3600000) { s.auditedAll = Date.now(); await audit({ action: 'view-all', ...actor(u, s), detail: `${reportees.length} reportees` }); }
   } else managers[u.id] = { name: u.name, email: u.email, status: u.status };
   return { org, me, reportees, managers, rev: revFor(s) };
@@ -392,6 +429,7 @@ route('PUT', '/api/me', async ({ raw, ses }) => {
 route('PUT', '/api/reportees/:id', async ({ params, raw, ses }) => {
   const obj = JSON.parse(raw.toString());
   if (obj.id !== params.id) fail(400, 'Id mismatch');
+  if (ses.u.admin) fail(403, 'Administrators don’t have reportees.');
   const cur = IDX.get(params.id);
   if (cur && cur.managerId !== ses.u.id) fail(403, 'This reportee belongs to another manager.');
   obj.managerId = ses.u.id;
@@ -464,11 +502,15 @@ const ownedCount = uid => [...IDX.values()].filter(r => r.managerId === uid).len
 route('GET', '/api/admin/users', ({ ses }) => ({ me: ses.u.id, users: SYS.users.map(u => ({ ...pubUser(u), requested: u.requested || [], reportees: ownedCount(u.id) })) }), { access: 'admin' });
 
 function cleanGroups(g) { return GROUPS.filter(x => (Array.isArray(g) ? g : []).includes(x)); }
+/* administrators manage accounts and settings; they never have reportees of their own */
+const ADMIN_NOT_LM = 'An administrator can’t also be a line manager — administrators don’t have reportees. Use a separate account to manage a team.';
+function checkAdminNotLm(groups, admin) { if (admin && groups.includes('lm')) fail(409, ADMIN_NOT_LM); }
 route('POST', '/api/admin/users/:id/approve', async ({ params, body, ses }) => {
   const u = findUser(params.id); if (!u) fail(404, 'User not found');
   if (u.status !== 'pending') fail(409, 'This registration was already handled.');
   const groups = cleanGroups(body.groups);
   if (!groups.length && !body.admin) fail(400, 'Choose at least one group.');
+  checkAdminNotLm(groups, !!body.admin);
   Object.assign(u, { status: 'active', groups, admin: !!body.admin, approvedAt: new Date().toISOString(), approvedBy: ses.u.name });
   await saveSys();
   await audit({ action: 'user-approved', ...actor(ses.u, ses.s), target: u.email, detail: [...groups.map(g => GROUP_LABEL[g]), u.admin && 'Administrator'].filter(Boolean).join(', ') });
@@ -484,35 +526,38 @@ route('POST', '/api/admin/users/:id/reject', async ({ params, ses }) => {
 }, { access: 'admin' });
 
 route('PUT', '/api/admin/users/:id', async ({ params, body, ses }) => {
-  const u = findUser(params.id); if (!u) fail(404, 'User not found');
-  const before = JSON.stringify(pubUser(u)), changes = [];
+  const orig = findUser(params.id); if (!orig) fail(404, 'User not found');
+  const u = JSON.parse(JSON.stringify(orig)), changes = [];   // validate on a copy; nothing changes unless everything is allowed
   if (body.name !== undefined) { const n = String(body.name).trim().slice(0, 120); if (!n) fail(400, 'Name is required'); if (n !== u.name) changes.push(`name → ${n}`); u.name = n; }
   if (body.groups !== undefined) {
     const g = cleanGroups(body.groups);
-    if (!g.length && !(body.admin ?? u.admin)) fail(400, 'Keep at least one group, or make the user an administrator.');
-    if (u.groups.includes('lm') && !g.includes('lm') && ownedCount(u.id)) fail(409, `${u.name} still has ${ownedCount(u.id)} reportee(s). Move them to another line manager first (Administration › Reportee ownership).`);
     if (g.join() !== (u.groups || []).join()) changes.push(`groups → ${g.map(x => GROUP_LABEL[x]).join(', ') || 'none'}`);
     u.groups = g;
   }
-  if (body.admin !== undefined && !!body.admin !== !!u.admin) {
-    if (!body.admin && u.admin && activeAdmins().length <= 1 && u.status === 'active') fail(409, 'There must be at least one active administrator.');
-    u.admin = !!body.admin; changes.push(u.admin ? 'made administrator' : 'administrator removed');
-  }
+  if (body.admin !== undefined && !!body.admin !== !!u.admin) { u.admin = !!body.admin; changes.push(u.admin ? 'made administrator' : 'administrator removed'); }
   if (body.status !== undefined && body.status !== u.status) {
     if (!['active', 'disabled'].includes(body.status) || u.status === 'pending') fail(400, 'Invalid status');
     if (u.id === ses.u.id) fail(409, 'You can’t disable your own account.');
-    if (body.status === 'disabled' && u.admin && activeAdmins().length <= 1) fail(409, 'There must be at least one active administrator.');
     u.status = body.status; changes.push(u.status === 'disabled' ? 'disabled' : 're-enabled');
-    if (u.status === 'disabled') killSessions(u.id);
   }
+  if (!u.groups.length && !u.admin) fail(400, 'Keep at least one group, or make the user an administrator.');
+  checkAdminNotLm(u.groups, u.admin);
+  if (orig.groups.includes('lm') && !u.groups.includes('lm') && ownedCount(u.id)) fail(409, `${u.name} still has ${ownedCount(u.id)} reportee(s). Move them to another line manager first (Administration › Reportee ownership).`);
+  const adminsLeft = SYS.users.filter(x => x.id !== u.id && x.admin && x.status === 'active').length + (u.admin && u.status === 'active' ? 1 : 0);
+  if (!adminsLeft) fail(409, 'There must be at least one active administrator.');
   if (!profilesOf(u).length && u.status === 'active') fail(400, 'The user would have no profile to sign in with.');
-  if (JSON.stringify(pubUser(u)) !== before) { await saveSys(); await audit({ action: 'user-updated', ...actor(ses.u, ses.s), target: u.email, detail: changes.join('; ') }); }
-  return pubUser(u);
+  if (changes.length) {
+    Object.assign(orig, u); await saveSys();
+    if (orig.status === 'disabled') killSessions(orig.id);
+    await audit({ action: 'user-updated', ...actor(ses.u, ses.s), target: orig.email, detail: changes.join('; ') });
+  }
+  return pubUser(orig);
 }, { access: 'admin' });
 
 route('POST', '/api/admin/users/:id/reset-password', async ({ params, ses }) => {
   const u = findUser(params.id); if (!u) fail(404, 'User not found');
   if (u.id === ses.u.id) fail(409, 'Change your own password from Settings › Security.');
+  if (u.aad && !u.pw) fail(409, `${u.name} signs in with Microsoft — there is no Team Desk password to reset.`);
   const temp = tempPassword();
   u.pw = await hashPw(temp); u.mustChange = true; await saveSys(); killSessions(u.id);
   await audit({ action: 'password-reset', ...actor(ses.u, ses.s), target: u.email });
@@ -534,7 +579,7 @@ route('GET', '/api/admin/reportees', () => [...IDX.entries()].map(([id, x]) => (
 
 route('POST', '/api/admin/transfer', async ({ body, ses }) => {
   const to = findUser(body.to);
-  if (!to || to.status !== 'active' || !(to.groups || []).includes('lm')) fail(400, 'Choose an active line manager to move the reportees to.');
+  if (!to || to.status !== 'active' || !(to.groups || []).includes('lm') || to.admin) fail(400, 'Choose an active line manager (not an administrator) to move the reportees to.');
   const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter(id => IDX.has(id));
   if (!ids.length) fail(400, 'Select at least one reportee.');
   await maybeSnapshot();
@@ -560,6 +605,81 @@ route('PUT', '/api/admin/settings', async ({ body, ses }) => {
   if (body.pmSeesPrivate !== undefined) set('pmSeesPrivate', !!body.pmSeesPrivate);
   if (changes.length) { await saveSys(); allRev++; await audit({ action: 'settings', ...actor(ses.u, ses.s), detail: changes.join('; ') }); }
   return { ...s, ai: undefined };
+}, { access: 'admin' });
+
+
+/* ---------- Microsoft Entra ID: settings, test, group directory, grant access ---------- */
+function ssoSettingsOut(req) {
+  const st = SYS.settings.sso, c = aadCfg();
+  return { enabled: !!st.enabled, tenantId: c.tenantId, clientId: c.clientId, hasSecret: !!c.clientSecret, groupId: c.groupId, publicUrl: c.publicUrl,
+    allowPasswordLogin: SYS.settings.allowPasswordLogin !== false, ready: !AZ.ready(), active: ssoOn(),
+    fromEnv: Object.fromEntries(Object.entries(AAD_ENV).map(([k, v]) => [k, !!v])), redirectUri: `${publicBase(req)}/auth/azure/callback`, authority: AAD_AUTHORITY };
+}
+route('GET', '/api/admin/sso', ({ req }) => ssoSettingsOut(req), { access: 'admin' });
+route('PUT', '/api/admin/sso', async ({ body, req, ses }) => {
+  const st = SYS.settings.sso, changes = [];
+  const str = (k, rx, msg) => { if (body[k] === undefined || AAD_ENV[k]) return; const v = String(body[k] || '').trim(); if (v && !rx.test(v)) fail(400, msg); if (v !== st[k]) { st[k] = v; changes.push(k); } };
+  str('tenantId', /^([0-9a-f-]{36}|[a-z0-9.-]+\.[a-z]{2,})$/i, 'Tenant ID should be the directory (tenant) GUID from the app registration’s Overview page.');
+  str('clientId', GUID, 'Client ID should be the application (client) ID GUID.');
+  str('groupId', GUID, 'Group should be the group’s Object ID (a GUID) from Microsoft Entra ID › Groups.');
+  str('publicUrl', /^https?:\/\/[^/\s]+$/i, 'Public address should look like https://teamdesk.company.com (no path).');
+  if (body.clientSecret && !AAD_ENV.clientSecret) { st.clientSecret = String(body.clientSecret).trim().slice(0, 500); changes.push('clientSecret'); }
+  if (body.enabled !== undefined && !!body.enabled !== !!st.enabled) {
+    if (body.enabled && AZ.ready()) fail(400, AZ.ready());
+    st.enabled = !!body.enabled; changes.push(st.enabled ? 'enabled' : 'disabled');
+  }
+  if (body.allowPasswordLogin !== undefined && !!body.allowPasswordLogin !== (SYS.settings.allowPasswordLogin !== false)) {
+    SYS.settings.allowPasswordLogin = !!body.allowPasswordLogin; changes.push(`password sign-in ${body.allowPasswordLogin ? 'on' : 'off (administrators only)'}`);
+  }
+  if (changes.length) { AZ.reset(); await saveSys(); await audit({ action: 'sso-settings', ...actor(ses.u, ses.s), detail: changes.join(', ') }); }
+  return ssoSettingsOut(req);
+}, { access: 'admin' });
+route('POST', '/api/admin/sso/test', async () => {
+  const err = AZ.ready(); if (err) fail(400, err);
+  AZ.reset();
+  const out = { token: true };
+  if (aadCfg().groupId) { const g = await AZ.groupInfo(); out.group = g.displayName; out.members = (await AZ.groupMembers(true)).length; }
+  return out;
+}, { access: 'admin' });
+
+function dirEntry(m) {
+  const byOid = findOid(m.oid), byEmail = !byOid && SYS.users.find(u => !u.aad && (u.email === m.email || (m.upn && u.email === m.upn)));
+  const u = byOid || byEmail;
+  return { ...m, user: u ? { id: u.id, groups: u.groups || [], admin: !!u.admin, status: u.status, linked: !!byOid, reportees: ownedCount(u.id) } : null };
+}
+route('GET', '/api/admin/aad/members', async ({ url }) => {
+  const list = await AZ.groupMembers(url.searchParams.get('refresh') === '1');
+  const q = String(url.searchParams.get('q') || '').trim().toLowerCase(), only = url.searchParams.get('only') || '';
+  let rows = list.map(dirEntry).filter(m => !q || [m.name, m.email, m.upn, m.jobTitle, m.department].some(x => String(x || '').toLowerCase().includes(q)));
+  if (only === 'access') rows = rows.filter(m => m.user); else if (only === 'none') rows = rows.filter(m => !m.user);
+  return { total: list.length, matched: rows.length, members: rows.slice(0, 100), withAccess: list.filter(m => findOid(m.oid)).length };
+}, { access: 'admin' });
+route('POST', '/api/admin/aad/grant', async ({ body, ses }) => {
+  if (AZ.ready()) fail(409, AZ.ready());
+  const oid = String(body.oid || '');
+  let m = (await AZ.groupMembers()).find(x => x.oid === oid);
+  if (!m) m = (await AZ.groupMembers(true)).find(x => x.oid === oid);
+  if (!m) fail(404, 'That person is not (or no longer) a member of the Entra ID group.');
+  const groups = cleanGroups(body.groups), admin = !!body.admin;
+  if (!groups.length && !admin) fail(400, 'Choose at least one role.');
+  checkAdminNotLm(groups, admin);
+  let u = findOid(oid), how = 'updated';
+  if (!u) { u = SYS.users.find(x => !x.aad && (x.email === m.email || (m.upn && x.email === m.upn))); if (u) how = 'linked'; }
+  if (u) {
+    if ((u.groups || []).includes('lm') && !groups.includes('lm') && ownedCount(u.id)) fail(409, `${u.name} still has ${ownedCount(u.id)} reportee(s). Move them to another line manager first (Administration › Reportee ownership).`);
+    if (u.admin && !admin && u.status === 'active' && activeAdmins().length <= 1) fail(409, 'There must be at least one active administrator.');
+    Object.assign(u, { aad: { oid, tid: aadCfg().tenantId }, groups, admin, jobTitle: m.jobTitle, department: m.department });
+    if (u.status !== 'active') { u.status = 'active'; u.approvedAt = new Date().toISOString(); u.approvedBy = ses.u.name; }
+  } else {
+    if (findEmail(m.email)) fail(409, `Another Team Desk account already uses ${m.email}.`);
+    how = 'granted';
+    u = { id: 'u' + crypto.randomBytes(6).toString('hex'), email: m.email || m.upn, name: m.name, aad: { oid, tid: aadCfg().tenantId }, status: 'active', admin, groups,
+      jobTitle: m.jobTitle, department: m.department, created: new Date().toISOString(), approvedAt: new Date().toISOString(), approvedBy: ses.u.name, source: 'azure' };
+    SYS.users.push(u);
+  }
+  await saveSys();
+  await audit({ action: 'sso-granted', ...actor(ses.u, ses.s), target: u.email, detail: `${how}: ${[...groups.map(g => GROUP_LABEL[g]), admin && 'Administrator'].filter(Boolean).join(', ')}` });
+  return pubUser(u);
 }, { access: 'admin' });
 
 route('GET', '/api/admin/audit', async ({ url }) => {
@@ -641,6 +761,43 @@ async function handleApi(req, res, url) {
   if (!res.headersSent) sendJSON(res, 200, out ?? { ok: true });
 }
 
+
+/* ---------- Microsoft sign-in redirects (plain browser navigation, not /api) ---------- */
+function redirect(res, location, cookies = []) { res.writeHead(302, { Location: location, 'Cache-Control': 'no-store', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) }); res.end(); }
+const ssoCookie = (req, v, age) => `td_sso=${v}; Path=/auth/azure; HttpOnly; SameSite=Lax; Max-Age=${age}${isHttps(req) ? '; Secure' : ''}`;
+async function handleSso(req, res, url) {
+  if (req.method !== 'GET') fail(405, 'Method not allowed');
+  const ip = clientIp(req), err = code => redirect(res, `/?sso_error=${code}`, [ssoCookie(req, '', 0)]);
+  if (!ssoOn()) return err('not-configured');
+  if (url.pathname === '/auth/azure/login') {
+    limitCount('sso:' + ip, 30, 600000);
+    const { url: to, state } = AZ.startLogin(`${publicBase(req)}/auth/azure/callback`);
+    return redirect(res, to, [ssoCookie(req, state, 600)]);
+  }
+  if (url.pathname !== '/auth/azure/callback') fail(404, 'Not found');
+  let who;
+  try { who = await AZ.finishLogin(url.searchParams, parseCookies(req).td_sso || ''); }
+  catch (e) { await audit({ action: 'sso-failed', ip, detail: e.message.slice(0, 200) }); return err(e.message === 'expired' ? 'expired' : 'failed'); }
+  const u = findOid(who.oid);
+  const deny = async (code, detail) => { await audit({ action: 'sso-denied', target: who.email, targetName: who.name, ip, detail }); redirect(res, `/?sso_error=${code}&who=${encodeURIComponent(who.email)}`, [ssoCookie(req, '', 0)]); };
+  if (!u) return deny('no-access', 'no Team Desk role');
+  if (u.status !== 'active') return deny('disabled', 'account disabled');
+  if (aadCfg().groupId) {
+    let member = false;
+    try { member = await AZ.isMember(who.oid); } catch (e) { return deny('check-failed', e.message.slice(0, 200)); }
+    if (!member) return deny('not-in-group', 'not in the Entra ID group');
+  }
+  if (!profilesOf(u).length) return deny('no-role', 'no role');
+  if (who.email && who.email !== u.email && !findEmail(who.email)) u.email = who.email;
+  u.lastLogin = new Date().toISOString(); await saveSys();
+  const { sid } = newSession(u, req);
+  await audit({ action: 'login', ...actor(u), ip, detail: 'Microsoft' });
+  /* continue with a same-site page load so the strict session cookie is used straight away */
+  const html = Buffer.from('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Team Desk</title><p style="font-family:sans-serif">Signing you in…</p>');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': html.length, 'Cache-Control': 'no-store', 'Set-Cookie': [cookie(req, sid), ssoCookie(req, '', 0)] });
+  res.end(html);
+}
+
 const injectIndex = html => html.replace('__TD_TOKEN__', '').replace('__TD_MODE__', 'central').replace(/__TD_VERSION__/g, VERSION);
 async function onRequest(req, res) {
   try {
@@ -648,6 +805,7 @@ async function onRequest(req, res) {
     const url = new URL(req.url, 'http://x');
     const extra = isHttps(req) ? { 'Strict-Transport-Security': 'max-age=31536000' } : {};
     if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
+    else if (url.pathname.startsWith('/auth/azure/')) await handleSso(req, res, url);
     else await serveStatic(req, res, url, injectIndex, extra);
   } catch (e) {
     if (!e.status) console.error(e);
@@ -662,8 +820,8 @@ async function cliResetPassword(email) {
   if (!u) { console.error(`No account with the email ${email}.`); process.exit(1); }
   const temp = tempPassword();
   u.pw = await hashPw(temp); u.mustChange = true;
-  if (u.status !== 'active') { u.status = 'active'; if (!profilesOf(u).length) u.groups = ['lm']; }
-  if (args.includes('--make-admin')) u.admin = true;
+  if (args.includes('--make-admin')) { u.admin = true; u.groups = (u.groups || []).filter(g => g !== 'lm'); }
+  if (u.status !== 'active') { u.status = 'active'; if (!profilesOf(u).length) u.groups = u.admin ? [] : ['lm']; }
   await saveSys();
   await audit({ action: 'password-reset-cli', target: u.email, detail: u.admin ? 'administrator' : '' });
   console.log(`\n  Temporary password for ${u.email}: ${temp}\n  They must change it after signing in.${u.admin ? ' This account is an administrator.' : ''}\n`);
@@ -688,6 +846,7 @@ async function start() {
   console.log(`  Data folder: ${DATA_DIR}\n  Server key:  ${process.env.TEAMDESK_MASTER_KEY ? 'from TEAMDESK_MASTER_KEY' : KEY_FILE}`);
   console.log(`  Users: ${SYS.users.length ? `${SYS.users.filter(u => u.status === 'active').length} active, ${SYS.users.filter(u => u.status === 'pending').length} waiting for approval` : 'none yet — open the address above and register; the first account becomes the administrator'}`);
   console.log(`  Reportees: ${IDX.size}`);
+  console.log(`  Microsoft sign-in: ${ssoOn() ? `on (tenant ${aadCfg().tenantId}${aadCfg().groupId ? `, group ${aadCfg().groupId}` : ''})${passwordLoginOn() ? '' : ', password sign-in for administrators only'}` : SYS.settings.sso.enabled ? `enabled but incomplete — ${AZ.ready()}` : 'off (set it up in Administration › Server settings)'}`);
   if (!tls && !TRUST_PROXY && !SECURE_COOKIE) console.log('\n  Note: running without HTTPS. Put Team Desk behind your HTTPS reverse proxy (and add --trust-proxy),\n  or start it with --tls-cert and --tls-key, before people use it over the network.');
   console.log('');
 }

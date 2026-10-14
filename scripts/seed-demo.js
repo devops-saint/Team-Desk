@@ -342,7 +342,39 @@ function buildDemo(org) {
   return { CK, roles: Object.values(roles), guideline, leadSelf, upward, people };
 }
 
-module.exports = { buildDemo, PREFIX };
+/* ---------------- second demo team (dataset 2) ----------------
+   Same situations as dataset 1, different (fictional) people, ids, employee numbers,
+   locations and projects — so two line managers can each get their own team. */
+const DATASET2 = [
+  // [old full, new full, old key, new key, old emp, new emp, old city, new city]
+  ['Asha Rao', 'Divya Sharma', 'asha', 'divya', 'DEMO-1042', 'DEMO-2042', 'Bengaluru', 'Gurugram'],
+  ['Rohan Kulkarni', 'Karthik Reddy', 'rohan', 'karthik', 'DEMO-0954', 'DEMO-1954', 'Hyderabad', 'Chennai'],
+  ['Neha Iyer', 'Sneha Patil', 'neha', 'sneha', 'DEMO-0612', 'DEMO-1612', 'Mumbai', 'Pune'],
+  ['Priya Menon', 'Ananya Ghosh', 'priya', 'ananya', 'DEMO-1311', 'DEMO-2311', 'Chennai', 'Kolkata'],
+  ['Vikram Singh', 'Farhan Qureshi', 'vikram', 'farhan', 'DEMO-0877', 'DEMO-1877', 'Pune', 'Noida'],
+  ['Arjun Mehta', 'Nikhil Joshi', 'arjun', 'nikhil', 'DEMO-1520', 'DEMO-2520', 'Bengaluru', 'Ahmedabad'],
+];
+const PREFIX2 = 'demo-b-';
+function buildDemo2(org) {
+  const d = buildDemo(org);
+  const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { ...d, people: d.people.map(p => {
+    const row = DATASET2.find(r => p.id === PREFIX + r[2]);
+    let j = JSON.stringify(p);
+    /* the person's own ids, employee number and city */
+    j = j.split(PREFIX + row[2]).join(PREFIX2 + row[3]).split(row[4]).join(row[5]).split(`"${row[6]}"`).join(`"${row[7]}"`);
+    /* every name mentioned anywhere (people refer to each other in notes) */
+    for (const r of DATASET2) {
+      const [of, nf] = [r[0], r[1]], [ofn, nfn] = [of.split(' ')[0], nf.split(' ')[0]];
+      j = j.split(of).join(nf).split(of.toLowerCase().replace(' ', '.')).join(nf.toLowerCase().replace(' ', '.'));
+      j = j.replace(new RegExp(`\\b${esc(ofn)}\\b`, 'g'), nfn).replace(new RegExp(`\\b${esc(ofn.toLowerCase())}_`, 'g'), nfn.toLowerCase() + '_');
+    }
+    j = j.replace(/Retail Analytics/g, 'Banking Analytics');
+    const q = JSON.parse(j); q.dataset = 2; return q;
+  }) };
+}
+
+module.exports = { buildDemo, buildDemo2, PREFIX, PREFIX2 };
 
 /* ---------------- main ---------------- */
 if (require.main === module) (async () => {

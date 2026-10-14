@@ -13,14 +13,16 @@ const ACTION_LABEL = {
   'reportee-transferred': 'Moved reportee', 'view-all': 'Opened all reportees (people manager)', 'view-reportee': 'Viewed reportee', 'download-report': 'Downloaded report',
   'file-download': 'Downloaded document', 'export-data': 'Exported data', 'import-data': 'Imported data', 'org-config': 'Changed organisation configuration',
   settings: 'Changed server settings', backup: 'Took a backup', restore: 'Restored a backup', 'ai-settings': 'Changed AI settings',
+  'sso-settings': 'Changed Microsoft sign-in settings', 'sso-granted': 'Gave access from Microsoft directory', 'sso-denied': 'Microsoft sign-in refused', 'sso-failed': 'Microsoft sign-in failed',
 };
 const groupBadges = u => `${(u.groups || []).map(g => `<span class="badge ${g === 'pm' ? 'b-acc' : ''}">${PROFILE_LABEL[g]}</span>`).join(' ')}${u.admin ? ' <span class="badge b-warn">Admin</span>' : ''}`;
 
 function pgAdmin(tab, sub) {
-  const labels = { users: 'Users & access', ownership: 'Reportee ownership', audit: 'Audit log', server: 'Server settings' };
+  const labels = { users: 'Users & access', directory: 'Microsoft directory', ownership: 'Reportee ownership', audit: 'Audit log', server: 'Server settings' };
   if (!labels[tab]) tab = 'users';
   crumbs([['Administration'], [labels[tab]]]);
   const head = pageHead('Administration', 'Accounts, groups and organisation-wide settings for this Team Desk server.') + tabsNav(Object.entries(labels), tab, k => `#/admin/${k}`);
+  if (tab === 'directory') { setTimeout(() => loadDirectory(), 0); return head + `<div id="adm-body">${loadingCard()}</div>`; }
   if (tab === 'ownership') { setTimeout(loadOwnership, 0); return head + `<div id="adm-body">${loadingCard()}</div>`; }
   if (tab === 'audit') { setTimeout(() => loadAudit(V.auditMonth), 0); return head + `<div id="adm-body">${loadingCard()}</div>`; }
   if (tab === 'server') { setTimeout(loadServerSettings, 0); return head + `<div id="adm-body">${loadingCard()}</div>`; }
@@ -51,23 +53,25 @@ function drawUsers() {
       : `<div class="card-body">${emptyState('check', 'No one is waiting', 'New registrations appear here for you to approve and put in a group.')}</div>`;
   } else {
     const rows = view === 'active' ? act : dis;
-    body = rows.length ? `<table class="tbl"><thead><tr><th>Person</th><th>Groups</th><th class="c">Reportees</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows.map(u => `<tr><td>${who(u)}</td><td>${groupBadges(u)}${u.mustChange ? ' <span class="badge">Temporary password</span>' : ''}</td>
+    body = rows.length ? `<table class="tbl"><thead><tr><th>Person</th><th>Groups</th><th class="c">Reportees</th><th>Last sign-in</th><th></th></tr></thead><tbody>${rows.map(u => `<tr><td>${who(u)}</td><td>${groupBadges(u)}${u.sso ? ' <span class="badge" title="Signs in with Microsoft Entra ID">Microsoft</span>' : ''}${u.mustChange ? ' <span class="badge">Temporary password</span>' : ''}</td>
       <td class="c">${u.reportees || '<span class="muted">0</span>'}</td><td class="small nowrap">${u.lastLogin ? `${fmt(u.lastLogin.slice(0, 10))}` : '<span class="muted">Never</span>'}</td>
-      <td class="nowrap" style="text-align:right">${view === 'active' ? `<button class="btn sm" onclick="editUser('${u.id}')">${ic('edit', 14)}Edit</button>${u.id !== me ? `<button class="btn sm ghost" onclick="resetUserPw('${u.id}')">${ic('key', 14)}Reset password</button><button class="btn sm ghost" onclick="setUserStatus('${u.id}','disabled')">Disable</button>` : ''}`
+      <td class="nowrap" style="text-align:right">${view === 'active' ? `<button class="btn sm" onclick="editUser('${u.id}')">${ic('edit', 14)}Edit</button>${u.id !== me ? `${u.hasPassword ? `<button class="btn sm ghost" onclick="resetUserPw('${u.id}')">${ic('key', 14)}Reset password</button>` : ''}<button class="btn sm ghost" onclick="setUserStatus('${u.id}','disabled')">Disable</button>` : ''}`
         : `<button class="btn sm" onclick="setUserStatus('${u.id}','active')">Enable</button>${u.reportees ? '' : `<button class="btn sm ghost" onclick="deleteUser('${u.id}')" aria-label="Delete">${ic('trash', 14)}</button>`}`}</td></tr>`).join('')}</tbody></table>`
       : `<div class="card-body muted">No ${view} accounts.</div>`;
   }
   admPaint(`<div class="card"><div class="spread" style="padding:12px 16px;border-bottom:1px solid var(--line)">${seg2}<span class="small muted">${plural(all.length, 'account')}</span></div><div class="card-body flush tbl-wrap">${body}</div></div>
     <div class="grid g3 mt">${[['users', 'Line manager', 'Adds and manages their own reportees: 1:1s, assessments, goals, development, reviews. Sees nobody else’s team.'],
       ['grid', 'People manager', `Sees every reportee of every line manager, read-only, and downloads reports for HR or leadership. ${App.status?.pmSeesPrivate ? 'Can also see line managers’ private notes.' : 'Line managers’ private notes stay hidden.'}`],
-      ['shield', 'Administrator', 'Approves accounts, sets groups, moves reportees between managers, edits the competency framework and organisation settings. Sees reportee data only through a group.']]
+      ['shield', 'Administrator', 'Approves accounts, sets groups, moves reportees between managers, edits the competency framework and organisation settings. Has no reportees of their own and can’t be a line manager.']]
       .map(([i, t, d]) => card('', `<div class="row" style="align-items:flex-start;flex-wrap:nowrap">${ic(i, 18, 'style="color:var(--accent);margin-top:2px"')}<div><b>${t}</b><div class="small muted">${d}</div></div></div>`)).join('')}</div>`);
 }
 function groupChecks(u, defaults) {
-  const g = u?.groups?.length ? u.groups : defaults || ['lm'];
-  return `<div class="grid" style="gap:10px">${chk('<b>Line manager</b> — manages their own reportees', 'lm', g.includes('lm'))}${chk('<b>People manager</b> — views all reportees across managers (read-only)', 'pm', g.includes('pm'))}
-    ${chk('<b>Administrator</b> — approves accounts and manages settings', 'admin', !!u?.admin)}</div>
-    <div class="xs muted mt-s">Someone in both Line manager and People manager chooses a profile after signing in, and can switch at any time.</div>`;
+  const isAdm = !!u?.admin, g = (u ? u.groups : defaults || ['lm']).filter(x => !(isAdm && x === 'lm'));
+  /* administrators never have reportees, so Administrator and Line manager exclude each other */
+  const sync = `(()=>{const f=this.form,a=f.querySelector('[name=admin]'),l=f.querySelector('[name=lm]');if(this===a&&a.checked)l.checked=false;if(this===l&&l.checked)a.checked=false;})()`;
+  return `<div class="grid" style="gap:10px">${chk('<b>Line manager</b> — manages their own reportees', 'lm', g.includes('lm'), { attrs: `onchange="${sync}"` })}${chk('<b>People manager</b> — views all reportees across managers (read-only)', 'pm', g.includes('pm'))}
+    ${chk('<b>Administrator</b> — approves accounts and manages settings; has no reportees', 'admin', isAdm, { attrs: `onchange="${sync}"` })}</div>
+    <div class="xs muted mt-s">An administrator can’t also be a line manager. Someone in both Line manager and People manager chooses a profile after signing in, and can switch at any time.</div>`;
 }
 const groupsFrom = d => GROUPS_ORDER.filter(g => d[g]);
 const GROUPS_ORDER = ['lm', 'pm'];
@@ -127,12 +131,12 @@ async function loadOwnership() {
 }
 function drawOwnership() {
   const users = ADM.users.users, byId = Object.fromEntries(users.map(u => [u.id, u]));
-  const lms = users.filter(u => u.status === 'active' && u.groups.includes('lm')).sort((a, b) => a.name.localeCompare(b.name));
+  const lms = users.filter(u => u.status === 'active' && u.groups.includes('lm') && !u.admin).sort((a, b) => a.name.localeCompare(b.name));
   const groups = {};
   ADM.reps.forEach(r => (groups[r.managerId] = groups[r.managerId] || []).push(r));
   const order = Object.keys(groups).sort((a, b) => (byId[a]?.name || '~').localeCompare(byId[b]?.name || '~'));
   const needs = id => !byId[id] || byId[id].status !== 'active' || !byId[id].groups.includes('lm');
-  admPaint(`${order.some(needs) ? callout('warn', 'Some reportees belong to a manager who is disabled, deleted or no longer a line manager. Move them so someone keeps their 1:1s and reviews going.') : ''}
+  admPaint(`${order.some(needs) ? callout('warn', 'Some reportees belong to someone who is disabled, deleted, an administrator or no longer a line manager (people managers can’t see these). Move them so someone keeps their 1:1s and reviews going.') : ''}
     <div class="card mt-s"><div class="spread" style="padding:12px 16px;border-bottom:1px solid var(--line)"><span class="small muted">Select reportees, then choose their new line manager. Their full history moves with them; the previous manager loses access.</span>
       <div class="row"><select class="input ro-ok" id="own-to" style="width:auto;height:32px">${opts([['', 'Move selected to…'], ...lms.map(u => [u.id, u.name])], '')}</select><button class="btn sm primary" onclick="doTransfer()">${ic('swap', 14)}Move</button></div></div>
     <div class="card-body flush">${order.length ? order.map(mid => `<div class="own-group"><div class="own-head"><label class="check"><input type="checkbox" onchange="$$('.own-g-${mid} input').forEach(i=>i.checked=this.checked)"><b>${esc(byId[mid]?.name || 'Unknown / deleted manager')}</b></label>
@@ -187,8 +191,9 @@ async function loadServerSettings() {
       <div class="small muted mt">All records, documents and the audit log are encrypted on disk (AES-256-GCM) with the server key. Passwords are stored as salted scrypt hashes. Forgotten administrator password? On the server run <code>node server/central.js --reset-password you@company.com</code>.</div>`)}</div>
     <div class="card mt"><div class="card-head"><div><h2>Backups</h2><p>A snapshot of all records is taken automatically each day (last 30 kept). Snapshots don’t include uploaded documents or user accounts. Also back up the data folder and the server key with your normal server backups.</p></div>
       <button class="btn sm primary" onclick="admBackupNow()">${ic('database', 14)}Back up now</button></div><div class="card-body flush" id="bk-list"><div class="card-body muted">Loading…</div></div></div>
+    <div class="mt" id="sso-card">${loadingCard()}</div>
     <div class="mt">${setAi()}</div>`);
-  admLoadBackups(); loadAiStatus();
+  admLoadBackups(); loadAiStatus(); loadSsoCard();
 }
 async function saveServerSettings() {
   const d = formObj($('#srv-form'));
@@ -207,4 +212,86 @@ async function admBackupNow() { try { await Store.flush(); await api('POST', '/a
 function admRestore(name) {
   confirmBox({ title: 'Restore this snapshot for everyone?', msg: `Every manager’s records and the organisation configuration go back to <b>${esc(name)}</b>. User accounts are not changed. A snapshot of the current state is taken first, so this can be undone.`, yes: 'Restore',
     onYes: async () => { await Store.flush(); await api('POST', '/api/admin/backups/restore', { name }); toast('Snapshot restored'); await Store.load(); render(); } });
+}
+
+
+/* ---------------- Microsoft Entra ID (Azure AD) directory: find people in the group and give them a role ---------------- */
+ADM.dir = null;
+async function loadDirectory(refresh) {
+  try { ADM.sso = await api('GET', '/api/admin/sso'); } catch (e) { return admPaint(callout('bad', esc(e.message))); }
+  if (!ADM.sso.ready || !ADM.sso.groupId) {
+    return admPaint(card('', emptyState('users', 'Connect Microsoft Entra ID first', 'Add the tenant, application and group under <b>Server settings › Microsoft sign-in</b>. The members of that group then appear here, and you can give each person a Team Desk role.', `<a class="btn primary" href="#/admin/server">Open Server settings</a>`)));
+  }
+  const el = $('#adm-body');
+  if (!el.querySelector('#dir-q')) admPaint(`<div class="card"><div class="dir-toolbar">
+      <input class="input ro-ok" id="dir-q" style="flex:1;min-width:220px" placeholder="Search by name, email, job title or department…" value="${esc(V.dirQ || '')}" oninput="V.dirQ=this.value;clearTimeout(window._dq);window._dq=setTimeout(()=>loadDirectoryRows(),300)">
+      <div class="seg">${[['', 'Everyone'], ['access', 'Has access'], ['none', 'No access yet']].map(([k, l]) => `<button class="${(V.dirOnly || '') === k ? 'on' : ''}" onclick="V.dirOnly='${k}';$$('.dir-toolbar .seg button').forEach(b=>b.classList.toggle('on',b===this));loadDirectoryRows()">${l}</button>`).join('')}</div>
+      <button class="btn sm ghost" onclick="loadDirectoryRows(true)" title="Reload the group from Microsoft">${ic('refresh', 14)}Refresh</button></div>
+    <div id="dir-rows"><div class="card-body muted"><span class="spin"></span> Reading the group from Microsoft…</div></div></div>
+    <div class="xs muted mt-s">People are listed from the Entra ID group set in Server settings. Giving someone a role lets them use <b>Sign in with Microsoft</b>. Remove access by disabling the account under Users & access.</div>`);
+  loadDirectoryRows(refresh);
+}
+async function loadDirectoryRows(refresh) {
+  const box = $('#dir-rows'); if (!box) return;
+  try { ADM.dir = await api('GET', `/api/admin/aad/members?q=${encodeURIComponent(V.dirQ || '')}&only=${V.dirOnly || ''}${refresh ? '&refresh=1' : ''}`); }
+  catch (e) { box.innerHTML = `<div class="card-body">${callout('bad', esc(e.message))}</div>`; return; }
+  const d = ADM.dir;
+  box.innerHTML = `<div class="spread" style="padding:8px 16px;border-bottom:1px solid var(--line)"><span class="small muted">${d.matched === d.total ? `${plural(d.total, 'person', 'people')} in the group` : `${d.matched} of ${d.total} match`} · ${d.withAccess} with Team Desk access</span>${d.matched > d.members.length ? `<span class="xs muted">Showing the first ${d.members.length} — search to narrow down</span>` : ''}</div>
+    ${d.members.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Person</th><th>Job title · department</th><th>Team Desk access</th><th></th></tr></thead><tbody>${d.members.map(m => {
+      const u = m.user, role = u ? [...u.groups.map(g => `<span class="badge ${g === 'pm' ? 'b-acc' : ''}">${PROFILE_LABEL[g]}</span>`), u.admin ? '<span class="badge b-warn">Admin</span>' : ''].join(' ') : '';
+      return `<tr><td><div class="person-cell"><span class="avatar">${esc(initials(m.name))}</span><div style="min-width:0"><b>${esc(m.name)}</b><span class="sub">${esc(m.email || m.upn)}</span></div></div></td>
+        <td class="small">${esc([m.jobTitle, m.department].filter(Boolean).join(' · ') || '—')}${m.enabled ? '' : ' <span class="badge b-warn">Disabled in Microsoft</span>'}</td>
+        <td>${u ? `${role}${u.status !== 'active' ? ` <span class="badge b-bad">${esc(u.status)}</span>` : ''}${u.linked ? '' : ' <span class="badge" title="A Team Desk account with this email exists but isn’t linked to Microsoft yet">Not linked</span>'}` : '<span class="muted small">No access</span>'}</td>
+        <td class="nowrap" style="text-align:right"><button class="btn sm ${u ? '' : 'primary'}" onclick="grantAccess('${esc(m.oid)}')">${u ? (u.linked ? 'Change role' : 'Link & set role') : 'Give access'}</button></td></tr>`; }).join('')}</tbody></table></div>`
+      : `<div class="card-body">${emptyState('search', 'Nobody matches', 'Try part of the name or email.')}</div>`}`;
+}
+function grantAccess(oid) {
+  const m = ADM.dir.members.find(x => x.oid === oid), u = m.user;
+  openModal({ title: u ? 'Change Team Desk role' : 'Give Team Desk access', sub: `${esc(m.name)} · ${esc(m.email || m.upn)}`, saveText: u ? 'Save' : 'Give access',
+    body: `${u && !u.linked ? callout('info', 'A Team Desk account with this email already exists. Saving links it to this Microsoft identity, so the person can use Sign in with Microsoft and keeps everything they already have.') : ''}
+      ${groupChecks(u ? { groups: u.groups, admin: u.admin } : null, ['lm'])}
+      ${u?.reportees && u.groups.includes('lm') ? `<div class="mt">${callout('info', `${esc(firstName(m.name))} owns ${plural(u.reportees, 'reportee')}. To remove Line manager, first move them under Reportee ownership.`)}</div>` : ''}`,
+    onSave: async d => {
+      if (!d.lm && !d.pm && !d.admin) { toast('Choose at least one role', 'err'); return false; }
+      try { await api('POST', '/api/admin/aad/grant', { oid, groups: groupsFrom(d), admin: d.admin }); toast(`${firstName(m.name)} can now use Sign in with Microsoft`); }
+      catch (e) { toast(e.message, 'err', 6000); return false; }
+      loadDirectoryRows();
+    } });
+}
+
+/* ---------------- Microsoft sign-in settings (part of Server settings) ---------------- */
+async function loadSsoCard() {
+  const el = $('#sso-card'); if (!el) return;
+  try { ADM.sso = await api('GET', '/api/admin/sso'); } catch (e) { el.innerHTML = callout('bad', esc(e.message)); return; }
+  const c = ADM.sso, envd = k => c.fromEnv[k] ? 'disabled' : '', envHint = k => c.fromEnv[k] ? 'Set on the server (environment variable).' : '';
+  el.innerHTML = `<div class="card"><div class="card-head"><div><h2>Microsoft sign-in (Entra ID / Azure AD)</h2><p>Let people sign in with their work account. You choose who gets in under <a href="#/admin/directory">Microsoft directory</a>.</p></div>
+      <span class="badge ${c.active ? 'b-good' : c.ready ? 'b-warn' : ''}">${c.active ? 'On' : c.ready ? 'Ready — not switched on' : 'Not set up'}</span></div>
+    <div class="card-body"><form class="fgrid" id="sso-form">
+      ${fld('Directory (tenant) ID', 'tenantId', c.tenantId, { attrs: envd('tenantId'), ph: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', hint: envHint('tenantId') || 'App registration › Overview.' })}
+      ${fld('Application (client) ID', 'clientId', c.clientId, { attrs: envd('clientId'), ph: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', hint: envHint('clientId') || 'App registration › Overview.' })}
+      ${fld('Client secret', 'clientSecret', '', { type: 'password', attrs: `${envd('clientSecret')} autocomplete="new-password"`, ph: c.hasSecret ? '•••••••• saved — type to replace' : 'Paste the secret value', hint: envHint('clientSecret') || 'Certificates & secrets › Client secrets › Value. Stored encrypted; never shown again.' })}
+      ${fld('Team Desk group (object ID)', 'groupId', c.groupId, { attrs: envd('groupId'), ph: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', hint: envHint('groupId') || 'Microsoft Entra ID › Groups › your group › Object ID. Only its members can be given access, and they must still be in it to sign in.' })}
+      ${fld('Public address of Team Desk', 'publicUrl', c.publicUrl, { attrs: envd('publicUrl'), ph: location.origin, hint: envHint('publicUrl') || 'Optional. Set it when Team Desk is behind a proxy, e.g. https://teamdesk.company.com' })}
+      <div class="field"><span>Redirect URI to add in the app registration</span><div class="row" style="flex-wrap:nowrap"><code style="padding:7px 10px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;overflow:auto;white-space:nowrap;flex:1">${esc(c.redirectUri)}</code><button type="button" class="btn sm" onclick="navigator.clipboard?.writeText(${esc(JSON.stringify(c.redirectUri))});toast('Copied')">Copy</button></div><small class="hint">Authentication › Platform: Web › Redirect URIs.</small></div>
+      ${chk('<b>Use Microsoft sign-in</b>', 'enabled', c.enabled, { cls: 'full' })}
+      ${chk('Also allow Team Desk passwords for everyone (untick to allow passwords for administrators only, as a fallback)', 'allowPasswordLogin', c.allowPasswordLogin, { cls: 'full' })}</form>
+      <div class="row mt"><button class="btn primary" onclick="saveSso()">Save</button><button class="btn" onclick="testSso()" ${c.ready ? '' : 'disabled'}>Test connection</button></div><div id="sso-test" class="mt"></div>
+      <details class="mt small"><summary><b>How to set it up in Azure</b> (5 minutes, needs an Entra ID administrator)</summary><ol style="margin:8px 0 0;padding-left:20px;line-height:1.6">
+        <li>Microsoft Entra admin center › <b>App registrations › New registration</b>. Name it “Team Desk”, single tenant. Redirect URI: platform <b>Web</b>, the address above.</li>
+        <li><b>Certificates & secrets › New client secret</b> — copy the <i>Value</i> into Client secret here.</li>
+        <li><b>API permissions › Add › Microsoft Graph › Application permissions › GroupMember.Read.All</b>, then <b>Grant admin consent</b>. (Used only to list the group and check membership.)</li>
+        <li>Create (or pick) a security group for Team Desk users and copy its <b>Object ID</b>.</li>
+        <li>Fill the fields, <b>Save</b>, <b>Test connection</b>, then tick <b>Use Microsoft sign-in</b> and save again.</li></ol></details></div></div>`;
+}
+async function saveSso() {
+  const d = formObj($('#sso-form'));
+  if (!d.clientSecret) delete d.clientSecret;
+  for (const k of Object.keys(ADM.sso.fromEnv)) if (ADM.sso.fromEnv[k]) delete d[k];
+  try { await api('PUT', '/api/admin/sso', d); toast('Microsoft sign-in settings saved'); App.status = await api('GET', '/api/status'); loadSsoCard(); }
+  catch (e) { toast(e.message, 'err', 7000); }
+}
+async function testSso() {
+  const el = $('#sso-test'); el.innerHTML = callout('info', '<span class="spin"></span> Contacting Microsoft…');
+  try { const r = await api('POST', '/api/admin/sso/test'); el.innerHTML = callout('good', `Connected. ${r.group ? `Group <b>${esc(r.group)}</b> has ${plural(r.members, 'member')}.` : 'No group set yet.'}`); }
+  catch (e) { el.innerHTML = callout('bad', esc(e.message)); }
 }

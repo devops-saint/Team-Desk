@@ -8,7 +8,7 @@
 services:
   teamdesk:
     build: .
-    image: teamdesk:4.0.1
+    image: teamdesk:4.1.0
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -17,6 +17,12 @@ services:
       TEAMDESK_TRUST_PROXY: "1"
       # Optional: only answer to your own host name(s)
       # TEAMDESK_ALLOWED_HOSTS: "teamdesk.company.com"
+      # Optional: Microsoft sign-in (Entra ID / Azure AD) — or set these in Administration › Server settings
+      # TEAMDESK_PUBLIC_URL: "https://teamdesk.company.com"
+      # TEAMDESK_AAD_TENANT_ID: "<directory (tenant) id>"
+      # TEAMDESK_AAD_CLIENT_ID: "<application (client) id>"
+      # TEAMDESK_AAD_CLIENT_SECRET: "<client secret value>"
+      # TEAMDESK_AAD_GROUP_ID: "<group object id>"
       # Optional: an Ollama server for the AI assistant (otherwise localhost inside the container)
       # TEAMDESK_AI_URL: "http://ollama:11434"
     volumes:

@@ -414,3 +414,10 @@ body.ro .dp-btn:disabled,body.ro input:disabled,body.ro select:disabled,body.ro 
 .rpt-fmt input{display:none}
 .rpt-fmt label:has(input:checked){border-color:var(--accent);background:var(--soft);color:var(--accent)}
 @media (max-width:640px){.rpt-sections{grid-template-columns:1fr}.own-list{padding-left:0}}
+/* Microsoft sign-in */
+.sso-btn{display:flex;justify-content:center;align-items:center;gap:10px;height:42px;font-size:14.5px;text-decoration:none;width:100%}
+.sso-btn.busy{opacity:.75;pointer-events:none}
+.sso-or{display:flex;align-items:center;gap:10px;margin:2px 26px 0;color:var(--muted);font-size:12px}
+.sso-or::before,.sso-or::after{content:"";flex:1;height:1px;background:var(--line)}
+.dir-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}
+.dir-toolbar .input{height:34px}

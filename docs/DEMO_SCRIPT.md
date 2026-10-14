@@ -416,11 +416,16 @@ Use this when the audience is HR, leadership or IT, and you want to show Team De
 
    | Account | Group | What it shows |
    |---|---|---|
-   | `anita.desai@demo.example` | Line manager + People manager + Administrator | Profile choice after sign-in, administration. Owns Asha, Rohan and Neha |
+   | `sanjay.kapoor@demo.example` | Administrator only | Approvals, ownership moves, audit log, settings. Has no reportees |
+   | `anita.desai@demo.example` | Line manager + People manager | Profile choice after sign-in. Owns Asha, Rohan and Neha |
    | `kavya.menon@demo.example` | Line manager | Sees only her team: Priya, Vikram and Arjun |
    | `meera.pillai@demo.example` | People manager (HR) | Sees all six reportees, view only |
    | `rahul.verma@demo.example` | Registered, not approved | The approval flow |
 
+   **Smaller setups (two accounts only):** `npm run demo:central:case1` gives an administrator plus Kavya as **both** line manager and people manager. She chooses a profile after sign-in and sees the same six reportees as her team (edit) or in the Organisation view (view only). `npm run demo:central:case2` gives an administrator plus Kavya as **only** a line manager, with no profile choice. If you already registered your own administrator, add `--admin-email you@company.com`.
+   **Accounts already exist?** (your own admin, line managers and people manager) There are two separate demo teams. Give each one to a line manager:
+   `node scripts/seed-central.js --admin-email <admin> --dataset 1 --email <line manager 1>` and `... --dataset 2 --email <line manager 2>`.
+   Team 1 is Asha, Rohan, Neha, Priya, Vikram and Arjun; team 2 is Divya, Karthik, Sneha, Ananya, Farhan and Nikhil. Your people manager then sees both teams in **Teams at a glance**. No new accounts are created.
 3. Open two browser windows: one normal, one private/incognito. That way you can be signed in as two people at the same time.
 
 > After the demo: `node scripts/seed-central.js --url http://localhost:8090 --remove`, then stop the server and delete the demo folder and key.
@@ -437,11 +442,16 @@ Use this when the audience is HR, leadership or IT, and you want to show Team De
 **SAY:**
 > "A new manager registers once with their work email. They can say 'I need line manager access' or 'people manager access', but they don't get it automatically. Until an administrator approves, they cannot sign in. And the admin can restrict registration to our company email domain only."
 
-**DO:** Sign in as **Anita**. She gets the **profile choice**. Choose **Line manager**. Then open **Administration › Users & access**. Rahul is waiting. Click **Approve**, tick **Line manager**, then **Approve**.
+**DO:** Sign in as **Sanjay** (the administrator). Open **Users & access**. Rahul is waiting. Click **Approve**, tick **Line manager**, then **Approve**.
 
 **SAY:**
-> "Anita is a delivery head, so she is in both groups. After login, Team Desk asks her: today, do you want to work as a line manager with your own team, or as a people manager across teams? She can switch any time from the sidebar.
+> "Sanjay is our Team Desk administrator. See, he has only the Administration menu: no reportees, no team. That is by design. The admin controls access but is not anybody's manager here, so his own people never get mixed in.
 > Here Rahul is waiting. I approve him as a line manager. Done. Now he can sign in and add his reportees."
+
+**DO:** In the private window, sign in as **Anita**. She gets the **profile choice**. Choose **Line manager**.
+
+**SAY:**
+> "Anita is a delivery head, so she is in both groups. After login, Team Desk asks her: today, do you want to work as a line manager with your own team, or as a people manager across teams? She can switch any time from the sidebar."
 
 ## P3. Line manager: only my team (1.5 minutes)
 
@@ -476,7 +486,7 @@ Use this when the audience is HR, leadership or IT, and you want to show Team De
 
 ## P5. Administration: moves, audit and security (2 minutes)
 
-**DO:** In Anita's window, go to **Administration › Reportee ownership**. Tick **Arjun Mehta**, choose **Anita Desai**, then **Move**.
+**DO:** In Sanjay's (administrator) window, go to **Administration › Reportee ownership**. Tick **Arjun Mehta**, choose **Anita Desai**, then **Move**.
 
 **SAY:**
 > "When somebody changes team, or a manager leaves, the admin moves the reportee to the new line manager here. The **full history goes with the person**: all the 1:1s, ratings, goals. The old manager loses access immediately. Nothing is lost and nothing is retyped."
@@ -490,6 +500,16 @@ Use this when the audience is HR, leadership or IT, and you want to show Team De
 
 **SAY:**
 > "And the security basics: registration open or closed, allowed email domains, auto sign-out after inactivity, and backups. All data on the server is **encrypted**, and passwords are stored only as secure hashes. The server key is kept separately from the data. IT can run it on our own server or in Docker, behind HTTPS. Nothing goes to any outside cloud."
+
+## P5b. Microsoft sign-in (optional, 1.5 minutes — only if Entra ID is connected)
+
+**DO:** As the administrator, open **Administration › Microsoft directory**. Type part of a name in the search box. Click **Give access**, tick **Line manager**, then **Give access**.
+
+**SAY:**
+> "In most companies, people already have a Microsoft login. So no new passwords. Team Desk is connected to our Entra ID, which is Azure AD. Here I see everybody in the 'Team Desk Users' group. I search a name, give the role, done.
+> Now that person just clicks **Sign in with Microsoft**. Anyone without a role, or anyone who has left the group, is stopped at the door, and the audit log shows it."
+
+**DO:** In the private window, click **Sign in with Microsoft** with that account.
 
 ## P6. Closing for the central version (30 seconds)
 
@@ -511,8 +531,10 @@ Use this when the audience is HR, leadership or IT, and you want to show Team De
 | Can other managers use it? | Yes, in two ways. Each manager can run their own personal copy, or the organisation runs the **central server**, where everybody signs in and sees only their own team. |
 | In the central version, can one manager see another manager's team? | No. The server only sends a line manager their own reportees. Only people managers (HR or leadership) can see across teams, and they can't change anything. |
 | Who decides who is a people manager? | The administrator, when approving the account. Every approval and group change is in the audit log. |
+| Can the administrator see or own reportees? | No team of their own: an administrator can't be a line manager, and nobody can be moved to them. They only see names on the ownership page, unless they are also given the People manager group. |
 | Can HR read my private notes? | Not by default. The administrator can allow it, and then the label on your screen says so. |
 | What happens when a manager leaves? | The admin disables their account and moves their reportees to the new manager, with full history. |
+| Can people use their Microsoft (Azure AD) login? | Yes. The administrator connects Entra ID once, then gives roles to people from the group. They click **Sign in with Microsoft**, so there are no new passwords. |
 | Where is the data in the central version? | On the company server, encrypted, with the key kept separately. IT backs up both. |
 | Does it work on Windows? | Yes. Same folder; double-click `Start Team Desk.bat`. Needs Node.js 18 or newer. |
 | What if the competency matrix changes? | Upload the new Excel; existing ratings are kept, matched by competency code. |
@@ -537,7 +559,7 @@ If time is less, cover only these:
 1. Sign in as Anita and show the profile choice (30 s).
 2. Kavya sees only her team (1 min).
 3. Meera's organisation view and a view-only record (1.5 min).
-4. Approve Rahul and show the audit log (1 min).
+4. Sign in as Sanjay (administrator): approve Rahul and show the audit log (1 min).
 
 ---
 

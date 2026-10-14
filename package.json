@@ -1,6 +1,6 @@
 {
   "name": "team-desk",
-  "version": "4.0.1",
+  "version": "4.1.0",
   "description": "Encrypted manager workspace for managing reportees \u2014 personal (runs on your computer) or central (one server for all managers, with sign-in and role-based access).",
   "private": true,
   "license": "UNLICENSED",
@@ -19,6 +19,8 @@
     "demo": "node scripts/seed-demo.js",
     "demo:remove": "node scripts/seed-demo.js --remove",
     "demo:central": "node scripts/seed-central.js",
+    "demo:central:case1": "node scripts/seed-central.js --scenario both",
+    "demo:central:case2": "node scripts/seed-central.js --scenario lm",
     "demo:central:remove": "node scripts/seed-central.js --remove"
   },
   "optionalDependencies": {
