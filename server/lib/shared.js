@@ -64,31 +64,37 @@ function readBody(req, limit) {
 }
 function sendJSON(res, status, obj, headers = {}) {
   const b = Buffer.from(JSON.stringify(obj));
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': b.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers });
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': b.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Cross-Origin-Resource-Policy': 'same-origin', ...headers });
   res.end(b);
 }
 function sendFile(res, meta, data) {
   res.writeHead(200, { 'Content-Type': meta.type || 'application/octet-stream', 'Content-Length': data.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "sandbox; default-src 'none'", 'Cross-Origin-Resource-Policy': 'same-origin',
     'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(meta.name)}` });
   res.end(data);
 }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2', '.map': 'application/json' };
-/* file readers are served from node_modules after `npm install`; otherwise the browser fetches them from these CDNs */
-const CDNS = 'https://cdn.jsdelivr.net https://cdn.sheetjs.com';
-const SEC_HEADERS = {
-  'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-cache',
-  'Cross-Origin-Opener-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-  'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline' ${CDNS}; worker-src 'self' blob: ${CDNS}; ` +
-    `style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ${CDNS}; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
-};
-/* optional libraries served from node_modules when `npm install` has been run (otherwise the browser uses the CDNs above) */
+/* optional libraries served from node_modules when `npm install` has been run (otherwise the browser uses the CDNs below) */
 const VENDOR = {
   'pdf.min.mjs': ['pdfjs-dist', 'build', 'pdf.min.mjs'],
   'pdf.worker.min.mjs': ['pdfjs-dist', 'build', 'pdf.worker.min.mjs'],
   'mammoth.browser.min.js': ['mammoth', 'mammoth.browser.min.js'],
   'xlsx.full.min.js': ['xlsx', 'dist', 'xlsx.full.min.js'],
+};
+/* The optional file readers (PDF, Word, Excel) are served from node_modules after `npm install`; otherwise the browser
+   fetches them from these CDNs. When they are installed — or TEAMDESK_NO_CDN=1 — the CDNs are left out of the
+   Content-Security-Policy, so the browser can't load any script from outside this server. */
+const VENDOR_LOCAL = Object.values(VENDOR).every(v => exists(path.join(ROOT, 'node_modules', ...v)));
+const NO_CDN = VENDOR_LOCAL || ['1', 'true', 'yes'].includes(String(process.env.TEAMDESK_NO_CDN || '').toLowerCase());
+const CDNS = NO_CDN ? '' : ' https://cdn.jsdelivr.net https://cdn.sheetjs.com';
+const SEC_HEADERS = {
+  'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-cache',
+  'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Resource-Policy': 'same-origin', 'X-Permitted-Cross-Domain-Policies': 'none',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+  'Content-Security-Policy': `default-src 'self'; script-src 'self' 'unsafe-inline'${CDNS}; worker-src 'self' blob:${CDNS}; ` +
+    `style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'${CDNS}; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
 };
 /* serves the browser app; `inject(html)` fills the placeholders in index.html */
 async function serveStatic(req, res, url, inject, extraHeaders = {}) {
@@ -163,6 +169,6 @@ async function aiChat(cfg, body) {
 module.exports = {
   ROOT, APP_DIR, MAGIC, SCRYPT_PARAMS, HttpError, fail, readJSON, exists, localDay, localTime,
   deriveKey, encryptWith, decryptWith, packFile, unpackFile, writeAtomic, listTde,
-  readBody, sendJSON, sendFile, MIME, SEC_HEADERS, VENDOR, serveStatic, makeRouter,
+  readBody, sendJSON, sendFile, MIME, SEC_HEADERS, VENDOR, NO_CDN, serveStatic, makeRouter,
   AI_DEFAULT_URL, loopbackUrl, ollama, aiStatus, aiChat,
 };

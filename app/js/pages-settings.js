@@ -117,7 +117,7 @@ function setAbout() {
     ...(CENTRAL ? [['shield', 'Roles & access', 'Line managers see only their own reportees; people managers see every team, view only; administrators approve accounts. Every view, download and change of ownership is audited.']] : []),
   ];
   return `<div class="grid g-side">${card('Manager toolkit', tools.map(([i, t, d]) => `<div class="list-row">${ic(i, 18, 'style="color:var(--accent);margin-top:2px"')}<div><b>${t}</b><div class="small muted">${d}</div></div></div>`).join(''))}
-    <div class="grid" style="align-content:start">${card('About', `<dl class="kv"><dt>Version</dt><dd>${esc(APP_VERSION)}${CENTRAL ? ' · central server' : ''}</dd><dt>Runtime</dt><dd>Node ${esc(App.status?.node || '')} · ${esc(App.status?.platform || '')}</dd><dt>Address</dt><dd>${esc(location.origin)}</dd>${CENTRAL ? `<dt>Signed in as</dt><dd>${esc(App.user?.name)} · ${esc(PROFILE_LABEL[App.profile] || '')}</dd>` : ''}</dl>`)}
+    <div class="grid" style="align-content:start">${card('About', `<dl class="kv"><dt>Version</dt><dd>${esc(APP_VERSION)}${CENTRAL ? ' · central server' : ''}</dd>${App.status?.node ? `<dt>Runtime</dt><dd>Node ${esc(App.status.node)} · ${esc(App.status.platform || '')}</dd>` : ''}<dt>Address</dt><dd>${esc(location.origin)}</dd>${CENTRAL ? `<dt>Signed in as</dt><dd>${esc(App.user?.name)} · ${esc(PROFILE_LABEL[App.profile] || '')}</dd>` : ''}</dl>`)}
       ${CENTRAL ? '' : card('Stop Team Desk', `<p class="small" style="margin-top:0">Saves any pending changes, locks your data and stops the local server. Start it again with the launcher.</p><button class="btn danger" onclick="stopServer()">${ic('power', 15)}Stop Team Desk</button>`)}</div></div>`;
 }
 async function stopServer() {

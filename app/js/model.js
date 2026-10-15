@@ -87,7 +87,7 @@ function defaultOrg() {
     skills: DEFAULT_SKILLS.map(([name, cat]) => ({ id: uid(), name, cat })),
     roles: [], guidelines: [],
     framework: window.DEFAULT_FRAMEWORK ? JSON.parse(JSON.stringify(window.DEFAULT_FRAMEWORK)) : null,
-    leadership: { self: {}, upward: {} },
+    leadership: { self: {}, upward: {}, teamFeedback: {} },
   };
 }
 function normP(p) {
@@ -105,7 +105,7 @@ function migrate(s) {
   s.settings.distribution = { ...DEFAULT_DISTRIBUTION, ...(s.settings.distribution || {}) };
   delete s.settings.pinHash;
   s.skills = s.skills || d.skills; s.roles = s.roles || []; s.guidelines = s.guidelines || [];
-  s.leadership = { self: {}, upward: {}, ...(s.leadership || {}) };
+  s.leadership = { self: {}, upward: {}, teamFeedback: {}, ...(s.leadership || {}) };
   s.qbank = { topics: {}, hidden: {}, custom: [], ...(s.qbank || {}) };
   s.reportees = (s.reportees || []).map(normP);
   s.roles.forEach(r => { r.kpis = r.kpis || []; r.skillTargets = r.skillTargets || {}; });

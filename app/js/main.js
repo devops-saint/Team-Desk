@@ -82,7 +82,7 @@ async function pollCentral() {
       await Store.load(); App.lastRefresh = Date.now(); applyTheme(); render();
       if (!isPM()) toast('Updated with the latest changes', '', 2500);
     }
-  } else renderSidebar(route());
+  } else { renderSidebar(route()); const b = $('#topbar .bell'); if (b) b.outerHTML = bellHtml(); }
   if (Store.state === 'error') Store.flush();
 }
 

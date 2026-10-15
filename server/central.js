@@ -33,11 +33,12 @@ const crypto = require('crypto');
 const {
   HttpError, fail, readJSON, exists, localDay, localTime, deriveKey, encryptWith, decryptWith, packFile, unpackFile,
   writeAtomic, listTde, readBody, sendJSON, sendFile, serveStatic, makeRouter, SCRYPT_PARAMS,
-  AI_DEFAULT_URL, loopbackUrl, aiStatus, aiChat,
+  AI_DEFAULT_URL, loopbackUrl, aiStatus, aiChat, NO_CDN,
 } = require('./lib/shared');
 const { createAzure, GUID } = require('./lib/azure');
+const FBC = require('../app/js/fbclass.js');   // feedback analysis, shared with the browser
 
-const VERSION = '4.1.0';
+const VERSION = '4.2.0';
 const args = process.argv.slice(2);
 const argVal = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : d; };
 const flag = (k, env) => args.includes(k) || ['1', 'true', 'yes'].includes(String(process.env[env] || '').toLowerCase());
@@ -93,6 +94,8 @@ const P = {
   file: (owner, id) => path.join(DATA_DIR, 'files', checkId(owner), checkId(id) + '.tde'),
   audit: () => path.join(DATA_DIR, 'audit'),
   backups: () => path.join(DATA_DIR, 'backups'),
+  xdir: () => path.join(DATA_DIR, 'exchange'),
+  x: id => path.join(DATA_DIR, 'exchange', checkId(id) + '.tde'),
 };
 
 /* ---------------------------------------------------------- key & encrypted storage */
@@ -122,7 +125,8 @@ async function readEncJSON(file) { return exists(file) ? JSON.parse((await readE
 async function writeEnc(file, buf) { await maybeSnapshot(); await writeAtomic(file, enc(buf)); }
 
 async function initData() {
-  for (const d of ['', 'managers', 'reportees', 'files', 'audit', 'backups']) await fsp.mkdir(path.join(DATA_DIR, d), { recursive: true });
+  for (const d of ['', 'managers', 'reportees', 'files', 'audit', 'backups', 'exchange']) await fsp.mkdir(path.join(DATA_DIR, d), { recursive: true, mode: 0o700 });
+  try { await fsp.chmod(DATA_DIR, 0o700); } catch {}
   if (exists(P.meta())) {
     const m = readJSON(P.meta());
     if (!m || m.app !== 'teamdesk-central') { console.error(`${P.meta()} is not a Team Desk central data file.`); process.exit(1); }
@@ -130,8 +134,9 @@ async function initData() {
     catch { console.error(`\n  The server key ${process.env.TEAMDESK_MASTER_KEY ? 'in TEAMDESK_MASTER_KEY' : `at ${KEY_FILE}`} does not match the data in ${DATA_DIR}.\n  Use the key that was created with this data folder.\n`); process.exit(1); }
   } else {
     await writeAtomic(P.meta(), Buffer.from(JSON.stringify({ app: 'teamdesk-central', format: 1, created: new Date().toISOString(), check: enc(VERIFY).toString('base64') }, null, 2)));
-    await fsp.writeFile(path.join(DATA_DIR, 'README.txt'), `TEAM DESK CENTRAL DATA FOLDER\n=============================\nEverything here is encrypted with the server key (kept separately). Do not edit or rename files.\n\n  central.json   key check (no data)\n  system.tde     user accounts and server settings\n  org.tde        organisation configuration (competency framework, roles, guidelines)\n  managers/      each manager's personal settings and leadership notes\n  reportees/     one encrypted file per reportee\n  files/         uploaded documents, per reportee\n  audit/         encrypted audit log, one file per month\n  backups/       daily snapshots (last ${KEEP_DAILY} days)\n`);
+    await fsp.writeFile(path.join(DATA_DIR, 'README.txt'), `TEAM DESK CENTRAL DATA FOLDER\n=============================\nEverything here is encrypted with the server key (kept separately). Do not edit or rename files.\n\n  central.json   key check (no data)\n  system.tde     user accounts and server settings\n  org.tde        organisation configuration (competency framework, roles, guidelines)\n  managers/      each manager's personal settings and leadership notes\n  reportees/     one encrypted file per reportee\n  exchange/      feedback requests and feedback between managers\n  files/         uploaded documents, per reportee\n  audit/         encrypted audit log, one file per month\n  backups/       daily snapshots (last ${KEEP_DAILY} days)\n`);
   }
+  await buildXIndex();
   SYS = (await readEncJSON(P.system())) || { users: [], settings: {} };
   SYS.settings = { registrationOpen: true, allowedDomains: '', sessionMinutes: 30, pmSeesPrivate: false, ai: { enabled: false, url: AI_DEFAULT_URL, model: '' },
     allowPasswordLogin: true, ...SYS.settings };
@@ -154,7 +159,17 @@ async function buildIndex() {
     catch (e) { console.error(`Could not read reportees/${f}: ${e.message}`); }
   }
 }
-const idxEntry = p => ({ managerId: p.managerId || '', name: p.profile?.name || '', archived: !!p.archived, grade: p.grade || '' });
+const idxEntry = p => ({ managerId: p.managerId || '', name: p.profile?.name || '', archived: !!p.archived, grade: p.grade || '', designation: p.profile?.designation || '' });
+/* feedback exchange between managers: one encrypted file per request / feedback item */
+const XIDX = new Map();
+const xMeta = x => ({ id: x.id, kind: x.kind, reporteeId: x.reporteeId, requesterUid: x.requesterUid || '', responderUid: x.responderUid || '', status: x.status, created: x.created, readBy: x.readBy || {} });
+async function buildXIndex() {
+  XIDX.clear();
+  for (const f of await listTde(P.xdir())) {
+    try { const x = JSON.parse((await readEnc(path.join(P.xdir(), f))).toString()); XIDX.set(x.id, xMeta(x)); }
+    catch (e) { console.error(`Could not read exchange/${f}: ${e.message}`); }
+  }
+}
 
 /* ---------------------------------------------------------- snapshots */
 const isDaily = n => /^\d{4}-\d{2}-\d{2}$/.test(n);
@@ -165,6 +180,7 @@ async function snapshot(name) {
   for (const f of ['central.json', 'system.tde', 'org.tde']) if (exists(path.join(DATA_DIR, f))) await fsp.copyFile(path.join(DATA_DIR, f), path.join(dst, f));
   await copyDir(P.mgrs(), path.join(dst, 'managers'));
   await copyDir(P.reps(), path.join(dst, 'reportees'));
+  await copyDir(P.xdir(), path.join(dst, 'exchange'));
   const all = (await fsp.readdir(P.backups()).catch(() => [])).sort();
   const daily = all.filter(isDaily), manual = all.filter(n => !isDaily(n));
   for (const n of [...daily.slice(0, Math.max(0, daily.length - KEEP_DAILY)), ...manual.slice(0, Math.max(0, manual.length - KEEP_MANUAL))])
@@ -271,6 +287,7 @@ setInterval(() => { const now = Date.now(), idle = (+SYS?.settings?.sessionMinut
 function limitCheck(key) { const b = limits.get(key); if (b && b.until > Date.now()) fail(429, `Too many attempts. Try again in ${Math.ceil((b.until - Date.now()) / 1000)} seconds.`); }
 function limitFail(key) { const b = limits.get(key) || { n: 0, until: 0 }; b.n++; if (b.n >= 5) b.until = Date.now() + Math.min(900, 15 * 2 ** (b.n - 5)) * 1000; limits.set(key, b); }
 const limitClear = key => limits.delete(key);
+setInterval(() => { const now = Date.now(); for (const [k, b] of limits) if (b.until < now && now - (b.start || b.until || 0) > 3600000) limits.delete(k); }, 600000).unref();
 function limitCount(key, max, windowMs) {
   const b = limits.get(key) || { n: 0, until: 0, start: Date.now() };
   if (Date.now() - (b.start || 0) > windowMs) { b.n = 0; b.start = Date.now(); }
@@ -308,11 +325,11 @@ function statusPayload(ses) {
   const u = ses?.u, s = ses?.s;
   const base = { app: 'teamdesk', mode: 'central', version: VERSION, hasUsers: SYS.users.length > 0, registrationOpen: (!!SYS.settings.registrationOpen && passwordLoginOn()) || !SYS.users.length,
     sso: ssoOn(), passwordLogin: passwordLoginOn(),
-    allowedDomains: SYS.settings.allowedDomains || '', node: process.version, platform: process.platform };
+    allowedDomains: SYS.settings.allowedDomains || '' };
   if (!u) return { ...base, signedIn: false };
-  return { ...base, signedIn: true, user: pubUser(u), profiles: profilesOf(u), profile: s.profile, csrf: s.csrf, rev: revFor(s), mustChange: !!u.mustChange,
+  return { ...base, ...(u.admin ? { node: process.version, platform: process.platform } : {}), signedIn: true, user: pubUser(u), profiles: profilesOf(u), profile: s.profile, csrf: s.csrf, rev: revFor(s), mustChange: !!u.mustChange,
     sessionMinutes: +SYS.settings.sessionMinutes || 30, pmSeesPrivate: !!SYS.settings.pmSeesPrivate, aiEnabled: !!SYS.settings.ai?.enabled,
-    pending: u.admin ? SYS.users.filter(x => x.status === 'pending').length : 0 };
+    pending: u.admin ? SYS.users.filter(x => x.status === 'pending').length : 0, notes: s.profile ? notifications(u, s).filter(n => !n.read).length : 0 };
 }
 
 route('GET', '/api/ping', () => ({ app: 'teamdesk', mode: 'central', version: VERSION }), { access: 'public' });
@@ -329,7 +346,8 @@ route('POST', '/api/auth/register', async ({ body, req, res, ip }) => {
   const first = SYS.users.length === 0;
   if (!first && !SYS.settings.registrationOpen) fail(403, 'Registration is closed. Ask your Team Desk administrator to open it.');
   if (!first && !domainAllowed(email)) fail(403, `Registration is limited to ${SYS.settings.allowedDomains} email addresses.`);
-  if (findEmail(email)) fail(409, 'An account with this email already exists. Sign in instead, or ask an administrator to reset your password.');
+  /* same answer whether or not the email is already registered, so registration can't be used to find out who has an account */
+  if (findEmail(email)) { await audit({ action: 'register-duplicate', target: email, ip }); return { pending: true }; }
   const u = { id: 'u' + crypto.randomBytes(6).toString('hex'), email, name, pw: await hashPw(body.password), status: first ? 'active' : 'pending',
     admin: first, groups: [], requested: GROUPS.filter(g => (body.requested || []).includes(g)), note: String(body.note || '').slice(0, 300),
     created: new Date().toISOString(), approvedAt: first ? new Date().toISOString() : '', approvedBy: first ? 'first account' : '' };
@@ -402,7 +420,7 @@ route('GET', '/api/data', async ({ ses }) => {
     for (const [id, x] of IDX) {
       if (s.profile === 'lm' && x.managerId !== u.id) continue;
       if (s.profile === 'pm' && adminIds.has(x.managerId)) continue;   // administrators have no team; anything still tagged to one waits for an administrator to move it
-      try { const p = JSON.parse((await readEnc(P.rep(id))).toString()); reportees.push(s.profile === 'pm' ? forPeopleManager(p) : p); }
+      try { const p = await mergePeer(JSON.parse((await readEnc(P.rep(id))).toString())); reportees.push(s.profile === 'pm' ? forPeopleManager(p) : p); }
       catch (e) { console.error(`Could not read reportee ${id}: ${e.message}`); }
     }
   }
@@ -447,10 +465,171 @@ route('DELETE', '/api/reportees/:id', async ({ params, ses }) => {
   await maybeSnapshot();
   await fsp.rm(P.rep(params.id), { force: true });
   await fsp.rm(P.fileDir(params.id), { recursive: true, force: true });
+  for (const x of [...XIDX.values()].filter(x => x.reporteeId === params.id)) { await fsp.rm(P.x(x.id), { force: true }); XIDX.delete(x.id); }
   IDX.delete(params.id); touchedReportee(ses.u.id);
   await audit({ action: 'reportee-deleted', ...actor(ses.u, ses.s), target: params.id, targetName: cur.name });
   return { ok: true, rev: revFor(ses.s) };
 }, { profiles: ['lm'] });
+
+
+/* ---------------------------------------------------------- feedback between managers
+   - a line manager asks anyone with Team Desk access for feedback on one of their reportees
+   - anyone with access can give feedback on a reportee outside their own team; the reportee's line manager is notified
+   Answers are analysed into Appreciation / Improvement / Other and appear in the reportee's feedback log.
+   People who give feedback never see the reportee's record. */
+const FB_LIMITS = { q: 10, qLen: 300, aLen: 5000, msg: 1000 };
+const ownerOf = rid => IDX.get(rid)?.managerId || '';
+async function readX(id) { const x = await readEncJSON(P.x(id)); if (!x) fail(404, 'Not found'); return x; }
+async function writeX(x) { x.updated = new Date().toISOString(); await writeEnc(P.x(x.id), Buffer.from(JSON.stringify(x))); XIDX.set(x.id, xMeta(x)); touchedReportee(ownerOf(x.reporteeId)); }
+function cleanQuestions(qs) {
+  const list = (Array.isArray(qs) ? qs : []).slice(0, FB_LIMITS.q).map(q => ({ q: String(q?.q || '').trim().slice(0, FB_LIMITS.qLen), hint: ['positive', 'improve'].includes(q?.hint) ? q.hint : FBC.hintFor(q?.q) })).filter(q => q.q);
+  return list.length ? list : [{ q: 'Your feedback', hint: '' }];
+}
+function cleanAnswers(questions, answers, text) {
+  const out = questions.map((q, i) => ({ q: q.q, hint: q.hint, a: String(answers?.[i]?.a ?? answers?.[i] ?? '').trim().slice(0, FB_LIMITS.aLen) }));
+  if (text) out.push({ q: 'Other comments', hint: '', a: String(text).trim().slice(0, FB_LIMITS.aLen) });
+  if (!out.some(x => x.a)) fail(400, 'Write some feedback first.');
+  return out.filter(x => x.a);
+}
+const CAT_TYPE = { appreciation: 'Kudos', improvement: 'Constructive', other: 'Observation' };
+const CAT_LABEL = { appreciation: 'Appreciation', improvement: 'Improvement', other: 'Other' };
+/* the analysed feedback, as entries for the reportee's feedback log */
+function peerEntries(x) {
+  const date = (x.answeredAt || x.created).slice(0, 10), out = [];
+  for (const cat of ['appreciation', 'improvement', 'other']) {
+    const lines = x.analysis?.[cat] || [];
+    if (!lines.length) continue;
+    out.push({ id: `${x.id}-${cat}`, date, type: CAT_TYPE[cat], source: 'Peer', from: x.responderName, text: lines.map(l => `• ${l}`).join('\n'), sbi: null,
+      peer: { id: x.id, by: x.responderName, requested: x.kind === 'request', requestedBy: x.requesterName || '', category: CAT_LABEL[cat] } });
+  }
+  return out;
+}
+/* feedback received through the exchange appears in the reportee's feedback log (once — the line manager can delete entries) */
+async function mergePeer(p) {
+  const items = [...XIDX.values()].filter(x => x.reporteeId === p.id && x.status === 'answered' && !(p.peerSeen || []).includes(x.id));
+  if (!items.length) return p;
+  p.feedback = p.feedback || []; p.peerSeen = [...(p.peerSeen || [])];
+  for (const m of items) {
+    try { const x = await readX(m.id); for (const e of peerEntries(x)) if (!p.feedback.some(f => f.id === e.id)) p.feedback.push(e); p.peerSeen.push(x.id); }
+    catch (e) { console.error(`Could not merge feedback ${m.id}: ${e.message}`); }
+  }
+  return p;
+}
+function notifications(u, s) {
+  const out = [];
+  for (const x of XIDX.values()) {
+    const read = !!x.readBy?.[u.id], rep = IDX.get(x.reporteeId);
+    if (!rep) continue;
+    if (x.kind === 'request' && x.responderUid === u.id && x.status === 'open') out.push({ id: x.id, kind: 'asked', created: x.created, read });
+    if (s.profile === 'lm' && rep.managerId === u.id && x.status === 'answered' && x.responderUid !== u.id) out.push({ id: x.id, kind: x.kind === 'request' ? 'answered' : 'received', created: x.created, read });
+    if (x.kind === 'request' && x.requesterUid === u.id && x.status === 'declined') out.push({ id: x.id, kind: 'declined', created: x.created, read });
+  }
+  return out.sort((a, b) => b.created.localeCompare(a.created));
+}
+/* what each person may see of an item */
+function xView(x, u) {
+  const rep = IDX.get(x.reporteeId), owner = rep?.managerId === u.id, requester = x.requesterUid === u.id, responder = x.responderUid === u.id;
+  const base = { id: x.id, kind: x.kind, status: x.status, created: x.created, answeredAt: x.answeredAt || '', reporteeId: owner ? x.reporteeId : '', reporteeName: x.reporteeName, reporteeDesignation: x.reporteeDesignation || '',
+    requesterName: x.requesterName || '', responderName: x.responderName || '', message: x.message || '', questions: x.questions || [], declineReason: x.declineReason || '', read: !!x.readBy?.[u.id],
+    role: owner ? 'owner' : requester ? 'requester' : responder ? 'responder' : '' };
+  if (owner) return { ...base, answers: x.answers || [], analysis: x.analysis || null };
+  if (requester) return { ...base, note: 'The reportee has moved to another line manager, so the answers are with them now.' };   // no cross-team sharing after a transfer
+  if (responder) return { ...base, answers: x.answers || [] };   // their own words only
+  return null;
+}
+
+route('GET', '/api/people', ({ url, ses }) => {
+  const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  return SYS.users.filter(u => u.id !== ses.u.id && u.status === 'active' && profilesOf(u).length && [u.name, u.email, u.jobTitle, u.department].some(v => String(v || '').toLowerCase().includes(q)))
+    .slice(0, 20).map(u => ({ id: u.id, name: u.name, email: u.email, jobTitle: u.jobTitle || '', department: u.department || '', sso: !!u.aad }));
+});
+route('GET', '/api/directory/reportees', ({ url, ses }) => {
+  const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
+  if (q.length < 2) return [];
+  const admins = new Set(SYS.users.filter(u => u.admin).map(u => u.id));
+  return [...IDX.entries()].filter(([, r]) => !r.archived && r.managerId !== ses.u.id && !admins.has(r.managerId) && r.name.toLowerCase().includes(q))
+    .slice(0, 20).map(([id, r]) => ({ id, name: r.name, designation: r.designation || '', grade: r.grade || '', managerName: findUser(r.managerId)?.name || '' }));
+});
+route('POST', '/api/feedback/request', async ({ body, ses }) => {
+  limitCount('fbreq:' + ses.u.id, 60, 3600000);
+  const rid = checkId(body.reporteeId), rep = IDX.get(rid);
+  if (!rep || rep.managerId !== ses.u.id) fail(403, 'You can only ask for feedback on your own reportees.');
+  const to = findUser(String(body.toUid || ''));
+  if (!to || to.status !== 'active' || !profilesOf(to).length) fail(400, 'Choose someone who has Team Desk access.');
+  if (to.id === ses.u.id) fail(400, 'Choose someone other than yourself.');
+  const x = { id: 'x' + crypto.randomBytes(8).toString('hex'), kind: 'request', reporteeId: rid, reporteeName: rep.name, reporteeDesignation: rep.designation, requesterUid: ses.u.id, requesterName: ses.u.name,
+    responderUid: to.id, responderName: to.name, message: String(body.message || '').trim().slice(0, FB_LIMITS.msg), questions: cleanQuestions(body.questions), status: 'open', created: new Date().toISOString(), readBy: { [ses.u.id]: Date.now() } };
+  await writeX(x);
+  await audit({ action: 'feedback-requested', ...actor(ses.u, ses.s), target: rid, targetName: rep.name, detail: `from ${to.name}` });
+  return xView(x, ses.u);
+}, { profiles: ['lm'] });
+route('POST', '/api/feedback/give', async ({ body, ses }) => {
+  limitCount('fbgive:' + ses.u.id, 60, 3600000);
+  const rid = checkId(body.reporteeId), rep = IDX.get(rid);
+  if (!rep || rep.archived) fail(404, 'Reportee not found.');
+  if (rep.managerId === ses.u.id) fail(400, 'This is your own reportee — add feedback directly in their Feedback log.');
+  if (findUser(rep.managerId)?.admin) fail(404, 'Reportee not found.');
+  const questions = cleanQuestions(body.questions), answers = cleanAnswers(questions, body.answers, body.text);
+  const x = { id: 'x' + crypto.randomBytes(8).toString('hex'), kind: 'feedback', reporteeId: rid, reporteeName: rep.name, reporteeDesignation: rep.designation, responderUid: ses.u.id, responderName: ses.u.name,
+    questions, answers, analysis: FBC.classify(answers), status: 'answered', created: new Date().toISOString(), answeredAt: new Date().toISOString(), readBy: { [ses.u.id]: Date.now() } };
+  await writeX(x);
+  await audit({ action: 'feedback-given', ...actor(ses.u, ses.s), target: rid, targetName: rep.name, detail: `line manager ${findUser(rep.managerId)?.name || ''} notified` });
+  return xView(x, ses.u);
+});
+route('POST', '/api/feedback/:id/answer', async ({ params, body, ses }) => {
+  const x = await readX(checkId(params.id));
+  if (x.kind !== 'request' || x.responderUid !== ses.u.id) fail(403, 'This request isn’t addressed to you.');
+  if (x.status !== 'open') fail(409, x.status === 'cancelled' ? 'The request was withdrawn.' : 'This request was already answered.');
+  if (!IDX.get(x.reporteeId)) fail(404, 'The reportee no longer exists.');
+  x.answers = cleanAnswers(x.questions, body.answers, body.text); x.analysis = FBC.classify(x.answers);
+  x.status = 'answered'; x.answeredAt = new Date().toISOString(); x.readBy = { [ses.u.id]: Date.now() };
+  await writeX(x);
+  await audit({ action: 'feedback-answered', ...actor(ses.u, ses.s), target: x.reporteeId, targetName: x.reporteeName, detail: `for ${x.requesterName}` });
+  return xView(x, ses.u);
+});
+route('POST', '/api/feedback/:id/decline', async ({ params, body, ses }) => {
+  const x = await readX(checkId(params.id));
+  if (x.kind !== 'request' || x.responderUid !== ses.u.id) fail(403, 'This request isn’t addressed to you.');
+  if (x.status !== 'open') fail(409, 'This request is no longer open.');
+  x.status = 'declined'; x.declineReason = String(body.reason || '').trim().slice(0, 300); x.readBy = { [ses.u.id]: Date.now() };
+  await writeX(x);
+  await audit({ action: 'feedback-declined', ...actor(ses.u, ses.s), target: x.reporteeId, targetName: x.reporteeName });
+  return xView(x, ses.u);
+});
+route('POST', '/api/feedback/:id/cancel', async ({ params, ses }) => {
+  const x = await readX(checkId(params.id));
+  if (x.kind !== 'request' || (x.requesterUid !== ses.u.id && ownerOf(x.reporteeId) !== ses.u.id)) fail(403, 'Not your request.');
+  if (x.status !== 'open') fail(409, 'This request is no longer open.');
+  x.status = 'cancelled';
+  await writeX(x);
+  return xView(x, ses.u);
+});
+route('POST', '/api/feedback/:id/read', async ({ params, ses }) => {
+  const x = await readX(checkId(params.id));
+  if (!xView(x, ses.u)) fail(403, 'No access');
+  x.readBy = { ...(x.readBy || {}), [ses.u.id]: Date.now() };
+  await writeEnc(P.x(x.id), Buffer.from(JSON.stringify(x))); XIDX.set(x.id, xMeta(x));
+  return { ok: true };
+});
+route('GET', '/api/feedback/mine', async ({ ses }) => {
+  const out = { toAnswer: [], given: [], requested: [], received: [] };
+  for (const m of XIDX.values()) {
+    const rep = IDX.get(m.reporteeId); if (!rep) continue;
+    const mineAsOwner = rep.managerId === ses.u.id && ses.s.profile === 'lm';
+    if (!(m.responderUid === ses.u.id || m.requesterUid === ses.u.id || mineAsOwner)) continue;
+    const v = xView(await readX(m.id), ses.u); if (!v) continue;
+    if (m.responderUid === ses.u.id) (m.status === 'open' ? out.toAnswer : out.given).push(v);
+    if (m.kind === 'request' && m.requesterUid === ses.u.id) out.requested.push(v);
+    if (mineAsOwner && m.status === 'answered' && m.responderUid !== ses.u.id) out.received.push(v);
+  }
+  for (const k of Object.keys(out)) out[k].sort((a, b) => b.created.localeCompare(a.created));
+  return out;
+});
+route('GET', '/api/notifications', async ({ ses }) => {
+  const list = notifications(ses.u, ses.s).slice(0, 50);
+  return Promise.all(list.map(async n => { const x = await readX(n.id); return { ...n, reporteeName: x.reporteeName, reporteeId: ownerOf(x.reporteeId) === ses.u.id ? x.reporteeId : '', who: n.kind === 'asked' || n.kind === 'declined' ? (n.kind === 'asked' ? x.requesterName : x.responderName) : x.responderName }; }));
+});
 
 /* ---------- documents ---------- */
 function fileAccess(ses, owner, write) {
@@ -708,11 +887,11 @@ route('POST', '/api/admin/backups/restore', async ({ body, ses }) => {
   await snapshot(`${localDay()}_${localTime()}_before-restore`);
   /* restores organisation configuration, managers' personal data and reportees. User accounts are not rolled back. */
   if (exists(path.join(src, 'org.tde'))) await fsp.copyFile(path.join(src, 'org.tde'), P.org());
-  for (const [dir, sub] of [[P.mgrs(), 'managers'], [P.reps(), 'reportees']]) {
+  for (const [dir, sub] of [[P.mgrs(), 'managers'], [P.reps(), 'reportees'], [P.xdir(), 'exchange']]) {
     for (const f of await listTde(dir)) await fsp.unlink(path.join(dir, f));
     for (const f of await listTde(path.join(src, sub))) await fsp.copyFile(path.join(src, sub, f), path.join(dir, f));
   }
-  await buildIndex(); orgRev++; allRev++; for (const u of SYS.users) { bump(mgrRev, u.id); bump(meRev, u.id); }
+  await buildIndex(); await buildXIndex(); orgRev++; allRev++; for (const u of SYS.users) { bump(mgrRev, u.id); bump(meRev, u.id); }
   await audit({ action: 'restore', ...actor(ses.u, ses.s), detail: name });
   return { ok: true };
 }, { access: 'admin' });
@@ -732,13 +911,14 @@ route('PUT', '/api/ai/config', async ({ body, ses }) => {
 route('POST', '/api/ai/chat', ({ body }) => aiChat(aiCfg(), body), { profiles: ['lm'], limit: 256 * 1024 });
 
 /* ---------------------------------------------------------- HTTP plumbing */
+function sameToken(a, b) { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || '')); return x.length === y.length && x.length > 0 && crypto.timingSafeEqual(x, y); }
 async function handleApi(req, res, url) {
   const m = match(req.method, url.pathname);
   if (!m) fail(404, 'Not found');
   const { r, params } = m;
   const ses = getSession(req), ip = clientIp(req);
   if (req.method !== 'GET') {
-    if (r.access !== 'public' && (!ses || req.headers['x-td-csrf'] !== ses.s.csrf)) fail(ses ? 403 : 401, ses ? 'Security check failed. Reload the page.' : 'Please sign in.');
+    if (r.access !== 'public' && (!ses || !sameToken(req.headers['x-td-csrf'], ses.s.csrf))) fail(ses ? 403 : 401, ses ? 'Security check failed. Reload the page.' : 'Please sign in.');
   }
   if (r.access !== 'public') {
     if (!ses) fail(401, 'Please sign in.');
@@ -846,6 +1026,7 @@ async function start() {
   console.log(`  Data folder: ${DATA_DIR}\n  Server key:  ${process.env.TEAMDESK_MASTER_KEY ? 'from TEAMDESK_MASTER_KEY' : KEY_FILE}`);
   console.log(`  Users: ${SYS.users.length ? `${SYS.users.filter(u => u.status === 'active').length} active, ${SYS.users.filter(u => u.status === 'pending').length} waiting for approval` : 'none yet — open the address above and register; the first account becomes the administrator'}`);
   console.log(`  Reportees: ${IDX.size}`);
+  console.log(`  File readers (PDF/Word/Excel): ${NO_CDN ? 'served by this server only — no outside scripts allowed' : 'from public CDNs (run “npm install” or set TEAMDESK_NO_CDN=1 to keep everything on this server)'}`);
   console.log(`  Microsoft sign-in: ${ssoOn() ? `on (tenant ${aadCfg().tenantId}${aadCfg().groupId ? `, group ${aadCfg().groupId}` : ''})${passwordLoginOn() ? '' : ', password sign-in for administrators only'}` : SYS.settings.sso.enabled ? `enabled but incomplete — ${AZ.ready()}` : 'off (set it up in Administration › Server settings)'}`);
   if (!tls && !TRUST_PROXY && !SECURE_COOKIE) console.log('\n  Note: running without HTTPS. Put Team Desk behind your HTTPS reverse proxy (and add --trust-proxy),\n  or start it with --tls-cert and --tls-key, before people use it over the network.');
   console.log('');

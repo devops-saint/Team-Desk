@@ -38,6 +38,7 @@ const ICONS = {
   clipboard: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
   compass: '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
   bars: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+  bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
@@ -64,7 +65,7 @@ const NAV = [
   ['Insights', [['insights/competency', 'grid', 'Competency map', '#/insights/competency'], ['insights/skills', 'layers', 'Skills map', '#/insights/skills'],
     ['insights/talent', 'award', 'Talent & succession', '#/insights/talent'], ['insights/engagement', 'heart', 'Engagement', '#/insights/engagement'],
     ['insights/calibration', 'bars', 'Calibration', '#/insights/calibration'], ['insights/report', 'file', 'Team report', '#/insights/report']]],
-  ['My leadership', [['leadership', 'compass', 'Leadership', '#/leadership']]],
+  ['My leadership', [['leadership', 'compass', 'Leadership', '#/leadership'], ['feedback', 'message', 'Feedback', '#/feedback']]],
   ['Configuration', [['config/framework', 'target', 'Competency framework', '#/config/framework'], ['config/roles', 'clipboard', 'Roles & KPIs', '#/config/roles'],
     ['config/skills', 'list', 'Technical skills', '#/config/skills'], ['config/questions', 'message', '1:1 question bank', '#/config/questions'], ['config/guidelines', 'book', 'Org guidelines', '#/config/guidelines']]],
 ];
@@ -77,7 +78,7 @@ function navFor() {
   if (App.profile === 'admin') return [NAV_ADMIN, config];
   let nav = NAV;
   if (isPM()) nav = [['Overview', [['dashboard', 'home', 'Organisation', '#/dashboard'], ['upcoming', 'calendar', 'Upcoming', '#/upcoming']]],
-    ['People', [['people', 'users', 'All reportees', '#/people'], ['managers', 'user', 'Line managers', '#/managers']]], NAV.find(n => n[0] === 'Insights'), config];
+    ['People', [['people', 'users', 'All reportees', '#/people'], ['managers', 'user', 'Line managers', '#/managers'], ['feedback', 'message', 'Feedback', '#/feedback']]], NAV.find(n => n[0] === 'Insights'), config];
   return isAdmin() ? [...nav, NAV_ADMIN] : nav;
 }
 const PAGE = { crumbs: [] };
@@ -95,7 +96,7 @@ function renderSidebar(r) {
   $('#sidebar').innerHTML = `<div class="brand"><div class="brand-mark">TD</div><div><b>Team Desk</b><span>${CENTRAL ? (isPM() ? 'People manager view' : App.profile === 'admin' ? 'Administration' : 'Manager workspace') : 'Manager workspace'}</span></div></div>
     ${navFor().map(([sec, items]) => `<div class="nav-sec">${sec}${sec === 'Configuration' && !canEditConfig() ? ' <span class="xs" style="text-transform:none;letter-spacing:0">· view only</span>' : ''}</div>${items.map(([k, icon, label, href]) => {
       const on = key === k || (k === 'insights/competency' && key === 'insights/') || (k === 'config/framework' && key === 'config/') || (k === 'admin/users' && key === 'admin/');
-      const count = k === 'people' ? `<span class="count">${active().length}</span>` : k === 'admin/users' && pending ? `<span class="count" style="background:var(--warn-bg);color:var(--warn)">${pending}</span>` : k === 'managers' ? `<span class="count">${Object.keys(App.managers || {}).length}</span>` : '';
+      const count = k === 'people' ? `<span class="count">${active().length}</span>` : k === 'admin/users' && pending ? `<span class="count" style="background:var(--warn-bg);color:var(--warn)">${pending}</span>` : k === 'managers' ? `<span class="count">${Object.keys(App.managers || {}).length}</span>` : k === 'feedback' && App.status?.notes ? `<span class="count" style="background:var(--warn-bg);color:var(--warn)">${App.status.notes}</span>` : '';
       return `<a class="nav-item ${on ? 'on' : ''}" href="${href}">${ic(icon)}${label}${count}</a>`; }).join('')}`).join('')}
     <div class="side-foot">
       <a class="nav-item ${r[0] === 'settings' ? 'on' : ''}" href="#/settings">${ic('sliders')}Settings</a>
@@ -108,9 +109,11 @@ function renderTopbar() {
     ${App.profile === 'admin' ? '<span class="grow"></span>' : `<div class="search">${ic('search', 15)}<input id="gsearch" placeholder="Search people and notes…" autocomplete="off" oninput="searchPeople(this.value)" onkeydown="searchKey(event)" onblur="setTimeout(()=>$('#gresults')?.remove(),150)"></div>`}
     ${isLM() ? `<button class="btn" onclick="quickNote()" title="Capture an observation for any reportee" aria-label="Quick note">${ic('edit', 15)}<span class="lbl">Quick note</span></button>
     <button class="btn primary" onclick="editProfile()" aria-label="Add reportee">${ic('plus', 15)}<span class="lbl">Add reportee</span></button>` : isPM() ? `<span class="badge b-acc" title="People managers can view every team but not change records">${ic('eye', 13)} View only</span>` : ''}
+    ${bellHtml()}
     <span class="savestate" id="savestate"></span>`;
   renderSaveState();
 }
+const bellHtml = () => CENTRAL && App.profile !== 'admin' ? `<button class="btn icon bell ro-ok" onclick="openNotifications()" title="Notifications" aria-label="Notifications${App.status?.notes ? ` (${App.status.notes} unread)` : ''}">${ic('bell', 16)}${App.status?.notes ? `<i>${App.status.notes > 9 ? '9+' : App.status.notes}</i>` : ''}</button>` : '';
 function renderSaveState() {
   const el = $('#savestate'); if (!el) return;
   const st = Store.state;
@@ -158,6 +161,7 @@ function dispatch(r) {
       if (r[0] === 'dashboard' || !r[0]) return pgOrgDashboard();
       if (r[0] === 'managers') return pgManagers();
       if (r[0] === 'leadership') return pgOrgDashboard();
+      if (r[0] === 'feedback') return pgFeedback(r[1] || 'inbox');
     }
   }
   switch (r[0]) {
@@ -166,6 +170,7 @@ function dispatch(r) {
     case 'people': return r[1] ? pgPerson(r[1], r[2] || 'overview') : pgPeople();
     case 'insights': return ({ competency: pgCompMap, skills: pgSkillMap, talent: pgTalent, engagement: pgEngagement, calibration: pgCalibration, report: pgReport }[r[1]] || pgCompMap)();
     case 'leadership': return pgLeadership(r[1] || 'scorecard');
+    case 'feedback': return pgFeedback(r[1] || (CENTRAL ? 'inbox' : 'team'));
     case 'config':
       if (r[1] === 'roles') return r[2] ? pgRole(r[2]) : pgRoles();
       if (r[1] === 'skills') return pgSkillsCatalogue();
@@ -183,7 +188,7 @@ const WRITE_FN = /^\s*(?:closeDrawer\(\);\s*|closeModal\(\);\s*)?(?:edit|del|add
 function roActive() {
   if (!CENTRAL || !App.ready) return false;
   const r0 = route()[0];
-  if (r0 === 'settings' || r0 === 'admin') return false;
+  if (r0 === 'settings' || r0 === 'admin' || r0 === 'feedback') return false;
   if (isPM()) return true;
   return r0 === 'config' && route()[1] !== 'questions' && !isAdmin();   // the 1:1 question bank is personal
 }

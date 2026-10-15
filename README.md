@@ -1,4 +1,4 @@
-# Team Desk 4.1
+# Team Desk 4.2
 
 An encrypted workspace for managing your reportees: 1:1s, your organisation's competency matrix, technical skills, KPIs, goals, development plans, talent and retention, improvement plans, half-yearly reviews and calibration, plus tools for assessing your own leadership.
 
@@ -99,6 +99,9 @@ If you installed an older Team Desk, refresh the libraries once: delete `node_mo
   - Habits scorecard, calculated from your records.
   - Self-assessment on 12 manager competencies.
   - Anonymous upward feedback: download a questionnaire, share it with your team, then import their response files. Results show only after at least 3 responses.
+- **Feedback** (menu item under My leadership):
+  - **From your team (anonymous)** — both editions. Choose the questions about you and how the team works (a suggested set is included), download an editable **Word** or **Excel** form with no name field, share it, then **upload** the filled forms (or paste answers). Only the answer text is read — never the file name or document properties such as *Author* — and the files are not kept. Every sentence is sorted into **Appreciation**, **Improvement** or **Other**. Nothing is shown until the minimum number of responses (Settings, default 3), and answers are shown shuffled, never as one person's form.
+  - **Between managers** — central edition only, see [section 9](#feedback-between-managers).
 - **Configuration:** competency framework (your matrix is built in), roles and KPI uploads, technical skills list, and organisation guidelines with search.
 - **Dates:** every date field opens a calendar picker.
 - **Reports for HR and leadership:** the **Report** button on a reportee downloads their complete record as **PDF**, **Word** or **Excel**. You choose the period (last 12 months, all time or one review cycle) and the sections: profile, reviews, competencies, skills, KPIs, goals, development, feedback, talent and retention, improvement plans, 1:1s, actions, leave and documents. Private notes are left out unless you tick them in. The report contains only that one reportee. It is generated in the browser, so it works offline.
@@ -206,8 +209,19 @@ The central edition runs one Team Desk for everyone. Each person registers once 
 - A line manager can't open, download or change another manager's reportees.
 - People managers can't change any record. The server rejects their changes, and the browser shows every screen read-only.
 - **Private notes stay private by default.** These are the "Private notes" box in a 1:1 and "Personal context" on a profile; the server removes them (and the line manager's suggested-actions inbox, which can quote them) before sending a record to a people manager. An administrator can allow people managers to see them under **Administration › Server settings**. Line managers then see the label change to "you and people managers".
+- Feedback from other managers is visible to the reportee's line manager (and people managers); the person who gave it sees only their own words, never the reportee's record.
 - Organisation configuration (competency framework, roles and KPIs, technical skills, guidelines, review-year start) is shared by everyone, and only administrators can change it. Each manager keeps their own 1:1 question bank, leadership self-assessment, upward feedback, theme and AI preference.
 - **Audit log.** Every sign-in (including failed ones), approval, group change, password reset and ownership move is recorded. So is every people-manager view of a reportee and every report or document download. The log is encrypted. See **Administration › Audit log**.
+
+### Feedback between managers
+
+Under **Feedback** in the menu (with a bell in the top bar for notifications):
+
+- **Request feedback.** On a reportee's **Feedback log**, a line manager clicks **Request feedback**, searches for anyone with Team Desk access by name (accounts created from Microsoft Entra ID are listed by their directory name), edits the questions and sends. The person asked sees a notification and answers inside Team Desk. They see only the reportee's name and designation and the questions — never the record.
+- **Give feedback without being asked.** Anyone with Team Desk access can give feedback on a reportee in another team (**Feedback › Give feedback**, or **Give feedback** on a reportee's page for people managers). The reportee's line manager is notified.
+- **Analysis.** Every answer is split into sentences and sorted into **Appreciation**, **Improvement** or **Other**. They appear in the reportee's feedback log as *Kudos*, *Constructive* and *Observation* entries with source *Peer* and the giver's name.
+- **Who sees what.** The reportee's line manager (and people managers, as part of the record) see the feedback with the giver's name. The giver sees only their own words. If the reportee moves to another line manager, the answers move with the record; the manager who asked keeps only the status.
+- Every request, answer, decline and unsolicited feedback is in the audit log.
 
 ### Start the server
 
@@ -274,6 +288,7 @@ People can sign in with their work Microsoft account instead of a Team Desk pass
   org.tde                 organisation configuration
   managers/               each manager's personal settings and leadership notes
   reportees/              one encrypted file per reportee, tagged with its line manager
+  exchange/               one encrypted file per feedback request or feedback between managers
   files/                  uploaded documents, per reportee
   audit/                  encrypted audit log, one file per month
   backups/                daily snapshots (last 30 days)
@@ -297,6 +312,7 @@ People can sign in with their work Microsoft account instead of a Team Desk pass
 | `--allowed-hosts teamdesk.company.com` | `TEAMDESK_ALLOWED_HOSTS` | any |
 | — | `TEAMDESK_AAD_TENANT_ID`, `TEAMDESK_AAD_CLIENT_ID`, `TEAMDESK_AAD_CLIENT_SECRET`, `TEAMDESK_AAD_GROUP_ID`, `TEAMDESK_PUBLIC_URL` | Microsoft sign-in (otherwise set in Server settings) |
 | — | `TEAMDESK_AI_URL` (an Ollama server elsewhere) | Ollama on the same machine |
+| — | `TEAMDESK_NO_CDN=1` (never load the PDF/Word/Excel readers from public CDNs) | on automatically after `npm install` |
 
 In the app, **Administration › Server settings** controls these:
 

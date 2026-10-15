@@ -86,7 +86,7 @@ async function doRegister(first) {
       requested: [$('#au-rq-lm')?.checked && 'lm', $('#au-rq-pm')?.checked && 'pm'].filter(Boolean), note: v('#au-note') }, { allowLocked: true });
     if (r.pending) {
       AUTH.email = v('#au-email').trim();
-      return authShell('Registration received', esc(AUTH.email), `<div class="gate-body">${callout('good', `Thanks, ${esc(firstName(v('#au-name')))}. An administrator needs to approve your account and choose your group (Line manager or People manager). You can sign in once that’s done.`)}</div>`,
+      return authShell('Registration received', esc(AUTH.email), `<div class="gate-body">${callout('good', `Thanks, ${esc(firstName(v('#au-name')))}. An administrator needs to approve your account and choose your group (Line manager or People manager). You can sign in once that’s done.`)}<p class="small muted">If this email already has an account, nothing has changed — sign in with your existing password, or ask an administrator to reset it.</p></div>`,
         `<span></span><button class="btn primary" onclick="showAuth('signin')">Back to sign in</button>`);
     }
     await afterSignIn(r);

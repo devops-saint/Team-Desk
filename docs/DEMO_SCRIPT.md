@@ -367,6 +367,12 @@ How to use this script:
 > And **upward feedback**: I download a small anonymous questionnaire and share it with the team. They fill it and send back a file, with no names. Results only show when at least three people respond, so nobody can be identified. And it shows my **blind spots**, where the team rates me lower than I rate myself.
 > Even what reportees say under 'Feedback for me' in 1:1s goes into my leadership notes."
 
+**DO:** Open **Feedback › From your team (anonymous)** in the menu. Show **Edit questions**, then the **Word form** and **Excel form** buttons, then the results (the demo data has three forms already).
+
+**SAY:**
+> "I can also ask my team open questions about me and about how we work: planning, stand-ups, hand-offs. I edit the questions, download a Word or Excel form with no name field, and share it.
+> When the forms come back I just upload them. Team Desk reads only the answers, not the file name or who saved the document, and the files are not kept. Every sentence is sorted into **Appreciation**, **Improvement** or **Other**, shuffled, and only shown once three people have replied."
+
 ---
 
 ## 15. Configuration and settings (1.5 minutes)
@@ -510,6 +516,23 @@ Use this when the audience is HR, leadership or IT, and you want to show Team De
 > Now that person just clicks **Sign in with Microsoft**. Anyone without a role, or anyone who has left the group, is stopped at the door, and the audit log shows it."
 
 **DO:** In the private window, click **Sign in with Microsoft** with that account.
+
+## P5c. Feedback between managers (2 minutes)
+
+**DO:** As **Kavya** (line manager), open **Arjun Mehta › Feedback log** and click **Request feedback**. Type "Anita" in the search box, pick **Anita Desai**, show the editable questions, then **Send request**.
+
+**SAY:**
+> "Arjun worked with Anita's team on a release. I want her view for his review. I search her by name — the same names as in our Microsoft directory — and send three short questions."
+
+**DO:** In Anita's window, the **bell** shows 1. Open it, click the request, write two or three sentences (one positive, one suggestion), **Send feedback**.
+
+**SAY:**
+> "Anita sees only Arjun's name and my questions — not his record. She answers right here."
+
+**DO:** Back as Kavya, reload. Open **Arjun › Feedback log**.
+
+**SAY:**
+> "Her answer is already in Arjun's feedback log, sorted into **Appreciation** and **Improvement**, with her name. And anyone can also give feedback without being asked: if Anita's team member did something great for my team, I give feedback from **Feedback › Give feedback** and Anita is notified."
 
 ## P6. Closing for the central version (30 seconds)
 

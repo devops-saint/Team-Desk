@@ -339,7 +339,17 @@ function buildDemo(org) {
     resp(2, [3, 4, 4, 2, 2, 4, 5, 3, 4, 3, 4, 0], 'Delegate more design decisions to the team', '', 'Backing the team with the client'),
     resp(3, [4, 3, 3, 3, 3, 3, 4, 4, 5, 4, 3, 4], 'Monthly team-level updates on the roadmap', 'Last-minute changes to sprint scope', 'Recognising good work in public'),
     resp(4, [5, 4, 4, 2, 3, 4, 4, 4, 4, 3, 4, 3], 'Career conversations every quarter', '', 'Being approachable')] };
-  return { CK, roles: Object.values(roles), guideline, leadSelf, upward, people };
+  /* anonymous team feedback (Word/Excel form) — fictional answers, no names */
+  const TQ = [['What do I do as your manager that helps you most? What should I keep doing?', 'positive'], ['What should I start doing, or do differently, to support you better?', 'improve'],
+    ['Is there anything I should stop doing?', 'improve'], ['Do you get clear priorities, enough context and timely decisions from me? Please give an example.', ''],
+    ['How well do our team processes work for you (planning, 1:1s, stand-ups, reviews, hand-offs)? What would you change?', ''], ['What is working well in how our team works together?', 'positive'],
+    ['Is there anything else you would like me to know?', '']].map(([q, hint]) => ({ q, hint }));
+  const tr = (n, a) => ({ h: `demo-t${n}`, answers: TQ.map((q, i) => ({ q: q.q, hint: q.hint, a: a[i] || '' })) });
+  const teamFb = { demo: true, formId: 'TF-DEMO01', questions: TQ, responses: [
+    tr(2, ['You always make time for 1:1s and you back us in client escalations.', 'Could share roadmap changes earlier, ideally before sprint planning.', 'Stop rescheduling 1:1s at the last minute.', 'Mostly yes. The quarterly goals were clear.', 'Stand-ups run too long and hand-offs to QA are unclear.', 'People help each other without being asked.', '']),
+    tr(1, ['Great support during the audit. Thank you for the honest feedback on my design doc.', 'More visibility on how promotion decisions are made would help.', 'Nothing.', 'Priorities are clear but decisions sometimes arrive late on Friday.', 'Planning works well. Retros feel repetitive.', 'Strong team spirit and good code reviews.', 'Workload has been heavy this quarter.']),
+    tr(3, ['You are approachable and calm under pressure.', 'Please delegate more design decisions to the team.', 'Avoid jumping into technical details too quickly in reviews.', 'Sometimes unclear when priorities change mid-sprint.', 'Hand-offs between data and QA need a checklist.', 'Collaborative and supportive.', 'Thanks for organising the offsite.'])] };
+  return { CK, roles: Object.values(roles), guideline, leadSelf, upward, teamFb, people };
 }
 
 /* ---------------- second demo team (dataset 2) ----------------
@@ -412,6 +422,7 @@ if (require.main === module) (async () => {
     await api('DELETE', `/api/files/_org/${PREFIX}guide`).catch(() => {});
     for (const k of Object.keys(org.leadership?.self || {})) if (org.leadership.self[k]?.demo) delete org.leadership.self[k];
     for (const k of Object.keys(org.leadership?.upward || {})) if (org.leadership.upward[k]?.demo) delete org.leadership.upward[k];
+    for (const k of Object.keys(org.leadership?.teamFeedback || {})) if (org.leadership.teamFeedback[k]?.demo) delete org.leadership.teamFeedback[k];
     await api('PUT', '/api/org', org); ok('Removed demo roles, guideline and leadership entries');
     await api('POST', '/api/data/changed');
     c('\n  Done. The open Team Desk tab will refresh in a few seconds.\n');
@@ -443,10 +454,12 @@ if (require.main === module) (async () => {
   org.leadership.self = org.leadership.self || {}; org.leadership.upward = org.leadership.upward || {};
   if (!org.leadership.self[demo.CK] || org.leadership.self[demo.CK].demo) org.leadership.self[demo.CK] = demo.leadSelf;
   if (!org.leadership.upward[demo.CK] || org.leadership.upward[demo.CK].demo) org.leadership.upward[demo.CK] = demo.upward;
+  org.leadership.teamFeedback = org.leadership.teamFeedback || {};
+  if (!org.leadership.teamFeedback[demo.CK] || org.leadership.teamFeedback[demo.CK].demo) org.leadership.teamFeedback[demo.CK] = demo.teamFb;
   if (!org.settings.managerName) org.settings.managerName = 'Demo Manager';
   await api('PUT', '/api/org', org);
   await api('PUT', `/api/files/_org/${PREFIX}guide`, Buffer.from(demo.guideline.text), { 'Content-Type': 'text/plain', 'X-File-Name': encodeURIComponent(demo.guideline.name) });
-  ok(`Added ${demo.roles.length} roles with KPIs, an appraisal guideline, and your leadership self-assessment + 4 anonymous upward-feedback responses`);
+  ok(`Added ${demo.roles.length} roles with KPIs, an appraisal guideline, and your leadership self-assessment + 4 anonymous upward-feedback responses + 3 anonymous team-feedback forms`);
 
   /* reportees */
   for (const p of demo.people) {

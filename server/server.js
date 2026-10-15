@@ -27,7 +27,7 @@ const {
   writeAtomic, listTde, readBody, sendJSON, sendFile, serveStatic, makeRouter, AI_DEFAULT_URL, loopbackUrl, aiStatus, aiChat, SCRYPT_PARAMS, MAGIC,
 } = require('./lib/shared');
 
-const VERSION = '4.1.0';
+const VERSION = '4.2.0';
 const args = process.argv.slice(2);
 const argVal = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] ? args[i + 1] : d; };
 const NO_OPEN = args.includes('--no-open') || process.env.TEAMDESK_NO_OPEN === '1';

@@ -421,3 +421,20 @@ body.ro .dp-btn:disabled,body.ro input:disabled,body.ro select:disabled,body.ro 
 .sso-or::before,.sso-or::after{content:"";flex:1;height:1px;background:var(--line)}
 .dir-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}
 .dir-toolbar .input{height:34px}
+
+/* ---------- feedback exchange (v4.2) ---------- */
+.picker{position:relative}
+.picker-list{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow-lg);padding:4px;z-index:60;max-height:280px;overflow:auto}
+.picker-list button{display:flex;gap:10px;align-items:center;width:100%;border:0;background:none;padding:7px 8px;border-radius:7px;cursor:pointer;text-align:left;color:inherit}
+.picker-list button:hover{background:var(--mid-bg)}
+.picker-chosen{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel-2)}
+.fb-cat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel-2);min-width:0}
+.fb-cat ul{margin:8px 0 0;padding-left:18px;font-size:13px}
+.fb-cat li{margin:3px 0}
+.btn.bell{position:relative}
+.btn.bell i{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--bad);color:#fff;font:600 10.5px/17px system-ui,sans-serif;font-style:normal;text-align:center}
+.notif{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 6px;cursor:pointer;color:inherit;font-size:13.5px}
+.notif:hover{background:var(--mid-bg)}
+.notif.unread{background:var(--soft)}
+.notif.unread .grow::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:middle}
+.tf-q{border-left:3px solid var(--soft-2);padding:2px 0 2px 12px;margin:0 0 16px}

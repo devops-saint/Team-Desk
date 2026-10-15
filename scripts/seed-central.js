@@ -356,7 +356,7 @@ ${dsKey === '1' ? `
     mine.settings = { ...(mine.settings || {}), managerName: PEOPLE[k].name };
     mine.leadership = mine.leadership || { self: {}, upward: {} };
     mine.leadership.self = { ...(mine.leadership.self || {}), [demo.CK]: demo.leadSelf };
-    if (k === first) mine.leadership.upward = { ...(mine.leadership.upward || {}), [demo.CK]: demo.upward };
+    if (k === first) { mine.leadership.upward = { ...(mine.leadership.upward || {}), [demo.CK]: demo.upward }; mine.leadership.teamFeedback = { ...(mine.leadership.teamFeedback || {}), [demo.CK]: demo.teamFb }; }
     await cl.call('PUT', '/api/me', mine);
   }
 

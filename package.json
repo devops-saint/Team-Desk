@@ -1,6 +1,6 @@
 {
   "name": "team-desk",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "Encrypted manager workspace for managing reportees \u2014 personal (runs on your computer) or central (one server for all managers, with sign-in and role-based access).",
   "private": true,
   "license": "UNLICENSED",
