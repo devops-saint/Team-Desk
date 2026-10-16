@@ -29,12 +29,12 @@ Competency_Matrix_*.xlsx
 Anonymous_feedback_*.html
 feedback-response-*.json
 # Source files from HR / reportees dropped into the project by mistake
-*.xlsx
-*.xls
-*.docx
-*.doc
-*.pdf
-*.csv
+# *.xlsx
+# *.xls
+# *.docx
+# *.doc
+# *.pdf
+# *.csv
 
 # ---- Dependencies (restored with `npm install`) ----
 node_modules/
