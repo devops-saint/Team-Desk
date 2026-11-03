@@ -1,0 +1,11 @@
+Peer feedback for Priya Menon
+From: Kiran Desai, Senior QA Engineer
+Date: 25 October 2026
+
+Priya is very reliable and always ready to help others in the team, especially new joiners.
+She resolved the payment gateway defect that had been open for more than a month.
+In the last two months she seems less involved in discussions and is often quiet in team meetings.
+She told me she feels the work is repetitive and she is not learning anything new.
+She could take up more challenging tasks, like designing the new API module.
+She is interested in cloud architecture and would like to do the AWS Solutions Architect course.
+It would be good if she gets a chance to present her work in the monthly demo.
