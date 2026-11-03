@@ -132,11 +132,14 @@ function pgFeedback(tab) {
   const labels = { inbox: 'Requests for you', give: 'Give feedback', ...(lm ? { requested: 'Your requests', received: 'Received for your team' } : {}), given: 'Given by you', ...(lm || !CENTRAL ? { team: 'From your team (anonymous)' } : {}) };
   if (!CENTRAL) tab = 'team';
   if (!labels[tab]) tab = 'inbox';
-  crumbs([['Feedback'], [labels[tab]]]);
-  const head = pageHead('Feedback', CENTRAL ? 'Ask other managers for feedback on your reportees, give feedback on people in other teams, and collect anonymous feedback from your own team.' : 'Collect anonymous feedback from your team about you and how the team works.')
-    + (CENTRAL ? tabsNav(Object.entries(labels), tab, k => `#/feedback/${k}`) : '');
+  const DESC = { inbox: 'Other managers asking for your feedback on one of their reportees.', give: 'Feedback on someone in another team. Their line manager is notified and sees your name.',
+    requested: 'Feedback you asked for on your reportees.', received: 'Feedback on your reportees from other managers — requested or not — sorted into appreciation, improvement and other.',
+    given: 'Feedback you have given or answered. You only see your own words.', team: 'Ask your team about you as a manager and how the team works. Answers are anonymous.' };
+  if (tab === 'team') crumbs([['My leadership', '#/leadership'], ['Team feedback (anonymous)']]);
+  else crumbs([['Feedback', '#/feedback'], [labels[tab]]]);
+  const head = pageHead(tab === 'team' ? 'Team feedback (anonymous)' : esc(labels[tab]), DESC[tab] || '');
   if (tab === 'team') return head + pgTeamFeedback();
-  if (tab === 'give') return head + `<div class="grid g-side"><div class="card"><div class="card-head"><div><h2>Give feedback on someone in another team</h2><p>Their line manager is notified in Team Desk and sees your name.</p></div></div>
+  if (tab === 'give') return head + `<div class="grid g-side"><div class="card"><div class="card-head"><div><h2>Choose a person</h2><p>Anyone outside your own team. Their line manager is notified in Team Desk.</p></div></div>
       <div class="card-body"><button class="btn primary" onclick="giveFeedback()">${ic('plus', 15)}Choose a person and write feedback</button></div></div>
     ${card('Good feedback is…', `<div class="small"><p style="margin-top:0"><b>Specific</b> — what happened, when, and the effect it had.</p><p><b>Balanced</b> — what went well and what could be better.</p><p style="margin-bottom:0"><b>About behaviour</b>, not personality. It goes to their manager, sorted into Appreciation, Improvement and Other.</p></div>`)}</div>`;
   setTimeout(() => loadFeedbackTab(tab), 0);

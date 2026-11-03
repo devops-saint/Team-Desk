@@ -58,46 +58,103 @@ const ICONS = {
 };
 const ic = (name, size = 16, extra = '') => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${ICONS[name] || ''}</svg>`;
 
-/* ---------- navigation model ---------- */
-const NAV = [
-  ['Overview', [['dashboard', 'home', 'Dashboard', '#/dashboard'], ['upcoming', 'calendar', 'Upcoming & actions', '#/upcoming']]],
-  ['People', [['people', 'users', 'Reportees', '#/people']]],
-  ['Insights', [['insights/competency', 'grid', 'Competency map', '#/insights/competency'], ['insights/skills', 'layers', 'Skills map', '#/insights/skills'],
-    ['insights/talent', 'award', 'Talent & succession', '#/insights/talent'], ['insights/engagement', 'heart', 'Engagement', '#/insights/engagement'],
-    ['insights/calibration', 'bars', 'Calibration', '#/insights/calibration'], ['insights/report', 'file', 'Team report', '#/insights/report']]],
-  ['My leadership', [['leadership', 'compass', 'Leadership', '#/leadership'], ['feedback', 'message', 'Feedback', '#/feedback']]],
-  ['Configuration', [['config/framework', 'target', 'Competency framework', '#/config/framework'], ['config/roles', 'clipboard', 'Roles & KPIs', '#/config/roles'],
-    ['config/skills', 'list', 'Technical skills', '#/config/skills'], ['config/questions', 'message', '1:1 question bank', '#/config/questions'], ['config/guidelines', 'book', 'Org guidelines', '#/config/guidelines']]],
-];
-const NAV_ADMIN = ['Administration', [['admin/users', 'users', 'Users & access', '#/admin/users'], ['admin/ownership', 'swap', 'Reportee ownership', '#/admin/ownership'],
-  ['admin/audit', 'clipboard', 'Audit log', '#/admin/audit'], ['admin/server', 'sliders', 'Server settings', '#/admin/server']]];
-/* the menu depends on the profile in the central version */
-function navFor() {
-  if (!CENTRAL) return NAV;
-  const config = NAV.find(n => n[0] === 'Configuration');
-  if (App.profile === 'admin') return [NAV_ADMIN, config];
-  let nav = NAV;
-  if (isPM()) nav = [['Overview', [['dashboard', 'home', 'Organisation', '#/dashboard'], ['upcoming', 'calendar', 'Upcoming', '#/upcoming']]],
-    ['People', [['people', 'users', 'All reportees', '#/people'], ['managers', 'user', 'Line managers', '#/managers'], ['feedback', 'message', 'Feedback', '#/feedback']]], NAV.find(n => n[0] === 'Insights'), config];
-  return isAdmin() ? [...nav, NAV_ADMIN] : nav;
+/* ---------- navigation model ----------
+   The sidebar lists only the main areas. Each area opens its own page: areas with several screens open a page of
+   options (a "hub"), and every screen in an area shows the area's other screens in a bar at the top. */
+const CAT_DESC = {
+  home: 'Your day at a glance.', people: '', feedback: 'Ask for, give and track feedback.',
+  insights: 'Patterns across your whole team — choose a view.', leadership: 'How you are doing as a manager — from your own records, your reflection and your team’s anonymous feedback.',
+  config: 'The organisation’s competency framework, roles, skills and guidelines, and your own 1:1 question bank.', admin: 'Accounts, access and organisation-wide settings for this Team Desk server.',
+};
+function categories() {
+  const pm = CENTRAL && isPM(), lmCentral = CENTRAL && isLM();
+  const home = { key: 'home', icon: 'home', label: 'Home', href: '#/dashboard', items: [
+    ['dashboard', 'home', pm ? 'Organisation' : 'Dashboard', '#/dashboard', pm ? 'Every team at a glance.' : 'Your day at a glance.'],
+    ['attention', 'alert', 'Needs attention', '#/attention', 'Everything that needs action, by priority.'],
+    ['upcoming', 'calendar', pm ? 'Upcoming' : 'Upcoming & actions', '#/upcoming', 'The next 30 days, action items and team leave.']] };
+  const people = { key: 'people', icon: 'users', label: 'People', href: '#/people', count: () => active().length, items: pm
+    ? [['people', 'users', 'All reportees', '#/people', 'Every reportee, filter by line manager.'], ['managers', 'user', 'Line managers', '#/managers', 'Each team at a glance.']]
+    : [['people', 'users', 'Reportees', '#/people', 'Your team.']] };
+  const feedback = { key: 'feedback', icon: 'message', label: 'Feedback', href: '#/feedback', hub: true, count: () => App.status?.notes || 0, warnCount: true, items: [
+    ['feedback/inbox', 'bell', 'Requests for you', '#/feedback/inbox', 'Other managers asking for your feedback on their reportees.'],
+    ['feedback/give', 'edit', 'Give feedback', '#/feedback/give', 'Share feedback on someone in another team. Their line manager is notified.'],
+    ...(lmCentral ? [['feedback/requested', 'clock', 'Your requests', '#/feedback/requested', 'Feedback you asked for on your reportees, and its status.'],
+      ['feedback/received', 'heart', 'Received for your team', '#/feedback/received', 'All feedback on your reportees, sorted into appreciation, improvement and other.']] : []),
+    ['feedback/given', 'checkSq', 'Given by you', '#/feedback/given', 'Feedback you have given or answered.']] };
+  const insights = { key: 'insights', icon: 'bars', label: 'Insights', href: '#/insights', hub: true, items: [
+    ['insights/competency', 'grid', 'Competency map', '#/insights/competency', 'Ratings for every competency across the team, with gaps highlighted.'],
+    ['insights/skills', 'layers', 'Skills map', '#/insights/skills', 'Technical skills and proficiency across the team.'],
+    ['insights/talent', 'award', 'Talent & succession', '#/insights/talent', '9-box, flight risk and readiness for the next role.'],
+    ['insights/engagement', 'heart', 'Engagement', '#/insights/engagement', 'Morale trends from 1:1s.'],
+    ['insights/calibration', 'bars', 'Calibration', '#/insights/calibration', 'Review ratings side by side against the expected distribution.'],
+    ['insights/report', 'file', 'Team report', '#/insights/report', 'A one-page monthly summary to share upwards.']] };
+  const leadership = { key: 'leadership', icon: 'compass', label: 'My leadership', href: '#/leadership', hub: true, items: [
+    ['leadership/scorecard', 'target', 'Habits scorecard', '#/leadership/scorecard', 'Your management habits, calculated from your own records.'],
+    ['leadership/self', 'user', 'Self-assessment', '#/leadership/self', 'Rate yourself on 12 manager competencies.'],
+    ['leadership/upward', 'trend', 'Upward feedback', '#/leadership/upward', 'Anonymous ratings questionnaire for your team.'],
+    ['feedback/team', 'message', 'Team feedback (anonymous)', '#/feedback/team', 'Word or Excel form for your team; uploads are sorted into appreciation, improvement and other.']] };
+  const config = { key: 'config', icon: 'sliders', label: 'Configuration', href: '#/config', hub: true, items: [
+    ['config/framework', 'target', 'Competency framework', '#/config/framework', 'Competencies and expectations for each grade.'],
+    ['config/roles', 'clipboard', 'Roles & KPIs', '#/config/roles', 'Roles and the KPIs that go with them.'],
+    ['config/skills', 'list', 'Technical skills', '#/config/skills', 'The technical skills list used in skill assessments.'],
+    ['config/questions', 'message', '1:1 question bank', '#/config/questions', 'Your guided 1:1 questions.'],
+    ['config/guidelines', 'book', 'Org guidelines', '#/config/guidelines', 'Appraisal and HR guidelines, searchable.']] };
+  const admin = { key: 'admin', icon: 'shield', label: 'Administration', href: '#/admin', hub: true, count: () => App.status?.pending || 0, warnCount: true, items: [
+    ['admin/users', 'users', 'Users & access', '#/admin/users', 'Accounts, roles and pending requests.'],
+    ['admin/directory', 'search', 'Microsoft directory', '#/admin/directory', 'Give people access from the Entra ID (Azure AD) group.'],
+    ['admin/ownership', 'swap', 'Reportee ownership', '#/admin/ownership', 'Move reportees between line managers.'],
+    ['admin/audit', 'clipboard', 'Audit log', '#/admin/audit', 'Who did what, and when.'],
+    ['admin/server', 'database', 'Server settings', '#/admin/server', 'Sign-in, sessions, backups and AI.']] };
+  if (!CENTRAL) return [home, people, insights, leadership, config];
+  if (App.profile === 'admin') return [admin, config];
+  const list = pm ? [home, people, feedback, insights, config] : [home, people, feedback, insights, leadership, config];
+  return isAdmin() ? [...list, admin] : list;
+}
+/* which area a route belongs to */
+function catOf(r, cats = categories()) {
+  const has = k => cats.find(c => c.key === k);
+  const r0 = r[0] || 'dashboard';
+  let k = { dashboard: 'home', attention: 'home', upcoming: 'home', people: 'people', managers: 'people', insights: 'insights', leadership: 'leadership', config: 'config', admin: 'admin', feedback: 'feedback' }[r0];
+  if (r0 === 'feedback' && r[1] === 'team') k = has('leadership') ? 'leadership' : 'feedback';
+  if (r0 === 'leadership' && !has('leadership')) k = 'home';
+  if (App.profile === 'admin' && CENTRAL && !['config', 'settings'].includes(r0)) k = 'admin';
+  return has(k) || null;
+}
+const isHubRoute = (c, r) => !!(c && c.hub && !r[1]);
+/* the active screen inside an area: the longest matching path */
+function itemOf(c, r) {
+  const path = r.join('/') || 'dashboard';
+  return [...c.items].sort((a, b) => b[0].length - a[0].length).find(it => path === it[0] || path.startsWith(it[0] + '/')) || null;
+}
+function catBar(c, r) {
+  if (!c || c.items.length < 2 || isHubRoute(c, r) || (r[0] === 'people' && r[1])) return '';
+  const on = itemOf(c, r);
+  return `<nav class="catbar" aria-label="${esc(c.label)}">${c.hub ? `<a class="catbar-home" href="${c.href}">${ic(c.icon, 15)}${esc(c.label)}</a><span class="catbar-sep"></span>` : ''}
+    ${c.items.map(it => `<a class="${on && on[0] === it[0] ? 'on' : ''}" href="${it[3]}">${esc(it[2])}</a>`).join('')}</nav>`;
+}
+/* an area's own page: its screens as cards */
+function pgHub(key) {
+  const c = categories().find(x => x.key === key); if (!c) return pgDashboard();
+  crumbs([[c.label]]);
+  const n = c.key === 'feedback' ? App.status?.notes || 0 : c.key === 'admin' ? App.status?.pending || 0 : 0;
+  const desc = c.key === 'config' && !canEditConfig() ? 'The organisation’s settings, managed by your Team Desk administrators. Your 1:1 question bank is yours to change.' : CAT_DESC[c.key] || '';
+  return pageHead(esc(c.label), esc(desc)) + `<div class="hub">${c.items.map(([k, icon, label, href, d], i) => {
+      const badge = n && ((c.key === 'feedback' && k === 'feedback/inbox') || (c.key === 'admin' && k === 'admin/users')) ? `<span class="count">${n}</span>` : '';
+      return `<a class="hub-card" href="${href}"><span class="hub-ic">${ic(icon, 20)}</span><span class="hub-txt"><b>${esc(label)}${badge}</b><span>${esc(d)}</span></span>${ic('chevR', 16, 'class="ic hub-go"')}</a>`; }).join('')}</div>`;
 }
 const PAGE = { crumbs: [] };
 const crumbs = c => { PAGE.crumbs = c; };
 
 function renderSidebar(r) {
-  const key = ['insights', 'config', 'admin'].includes(r[0]) ? `${r[0]}/${r[1] || ''}` : r[0];
-  const folder = (App.status?.dataDir || '').split(/[\\/]/).filter(Boolean).pop() || '';
-  const pending = App.status?.pending || 0;
+  const cats = categories(), cur = catOf(r, cats);
   const foot = CENTRAL ? `${(App.status?.profiles || []).length > 1 ? `<button class="nav-item" onclick="switchProfile()">${ic('swap')}Switch profile</button>` : ''}
       <button class="nav-item" onclick="signOut()">${ic('logout')}Sign out</button>
       <div class="vault-pill" title="${esc(App.user?.email || '')}"><span class="avatar sm">${esc(initials(App.user?.name))}</span><div>${esc(App.user?.name || '')}<b>${esc(PROFILE_LABEL[App.profile] || '')}${isAdmin() && App.profile !== 'admin' ? ' · Admin' : ''}</b></div></div>`
     : `<button class="nav-item" onclick="lockNow()">${ic('lock')}Lock Team Desk</button>
-      <div class="vault-pill" title="${esc(App.status?.dataDir || '')}">${ic('shield', 14)}<div>Encrypted data folder<b>${esc(folder)}</b></div></div>`;
+      <div class="vault-pill" title="${esc(App.status?.dataDir || '')}">${ic('shield', 14)}<div>Encrypted data folder<b>${esc((App.status?.dataDir || '').split(/[\\/]/).filter(Boolean).pop() || '')}</b></div></div>`;
   $('#sidebar').innerHTML = `<div class="brand"><div class="brand-mark">TD</div><div><b>Team Desk</b><span>${CENTRAL ? (isPM() ? 'People manager view' : App.profile === 'admin' ? 'Administration' : 'Manager workspace') : 'Manager workspace'}</span></div></div>
-    ${navFor().map(([sec, items]) => `<div class="nav-sec">${sec}${sec === 'Configuration' && !canEditConfig() ? ' <span class="xs" style="text-transform:none;letter-spacing:0">· view only</span>' : ''}</div>${items.map(([k, icon, label, href]) => {
-      const on = key === k || (k === 'insights/competency' && key === 'insights/') || (k === 'config/framework' && key === 'config/') || (k === 'admin/users' && key === 'admin/');
-      const count = k === 'people' ? `<span class="count">${active().length}</span>` : k === 'admin/users' && pending ? `<span class="count" style="background:var(--warn-bg);color:var(--warn)">${pending}</span>` : k === 'managers' ? `<span class="count">${Object.keys(App.managers || {}).length}</span>` : k === 'feedback' && App.status?.notes ? `<span class="count" style="background:var(--warn-bg);color:var(--warn)">${App.status.notes}</span>` : '';
-      return `<a class="nav-item ${on ? 'on' : ''}" href="${href}">${ic(icon)}${label}${count}</a>`; }).join('')}`).join('')}
+    <nav class="nav-main">${cats.map(c => { const n = c.count ? c.count() : 0;
+      return `<a class="nav-item ${cur && cur.key === c.key && r[0] !== 'settings' ? 'on' : ''}" href="${c.href}">${ic(c.icon)}${esc(c.label)}${n ? `<span class="count ${c.warnCount ? 'warn' : ''}">${n}</span>` : ''}</a>`; }).join('')}</nav>
     <div class="side-foot">
       <a class="nav-item ${r[0] === 'settings' ? 'on' : ''}" href="#/settings">${ic('sliders')}Settings</a>
       ${foot}
@@ -148,30 +205,34 @@ function render() {
   let html;
   try { html = dispatch(r); }
   catch (e) { console.error(e); html = pageHead('Something went wrong', esc(e.message)) + `<div class="card card-body">${esc(e.stack || '')}</div>`; }
-  if (CENTRAL && r[0] === 'config' && r[1] !== 'questions' && !canEditConfig()) html = `<div class="mb">${callout('info', 'Organisation configuration is managed by your Team Desk administrators. You can view it here; ask an administrator for changes.', 'eye')}</div>` + html;
-  $('#main').innerHTML = html;
+  if (CENTRAL && r[0] === 'config' && r[1] && r[1] !== 'questions' && !canEditConfig()) html = `<div class="mb">${callout('info', 'Organisation configuration is managed by your Team Desk administrators. You can view it here; ask an administrator for changes.', 'eye')}</div>` + html;
+  const cat = catOf(r);
+  if (cat && cat.hub && PAGE.crumbs.length > 1 && PAGE.crumbs[0][0] === cat.label && !PAGE.crumbs[0][1]) PAGE.crumbs[0] = [cat.label, cat.href];
+  $('#main').innerHTML = catBar(cat, r) + html;
   renderSidebar(r); renderTopbar();
   if (rk !== lastRouteKey) { window.scrollTo(0, 0); lastRouteKey = rk; }
 }
 function dispatch(r) {
   if (CENTRAL) {
-    if (r[0] === 'admin') return isAdmin() ? pgAdmin(r[1] || 'users', r[2]) : pgDashboard();
-    if (App.profile === 'admin' && !['config', 'settings'].includes(r[0])) return pgAdmin('users');
+    if (r[0] === 'admin') return !isAdmin() ? pgDashboard() : r[1] ? pgAdmin(r[1], r[2]) : pgHub('admin');
+    if (App.profile === 'admin' && !['config', 'settings'].includes(r[0])) return pgHub('admin');
     if (isPM()) {
       if (r[0] === 'dashboard' || !r[0]) return pgOrgDashboard();
       if (r[0] === 'managers') return pgManagers();
       if (r[0] === 'leadership') return pgOrgDashboard();
-      if (r[0] === 'feedback') return pgFeedback(r[1] || 'inbox');
+      if (r[0] === 'feedback') return r[1] ? pgFeedback(r[1]) : pgHub('feedback');
     }
   }
   switch (r[0]) {
     case 'dashboard': return pgDashboard();
+    case 'attention': return pgAttention();
     case 'upcoming': return pgUpcoming();
     case 'people': return r[1] ? pgPerson(r[1], r[2] || 'overview') : pgPeople();
-    case 'insights': return ({ competency: pgCompMap, skills: pgSkillMap, talent: pgTalent, engagement: pgEngagement, calibration: pgCalibration, report: pgReport }[r[1]] || pgCompMap)();
-    case 'leadership': return pgLeadership(r[1] || 'scorecard');
-    case 'feedback': return pgFeedback(r[1] || (CENTRAL ? 'inbox' : 'team'));
+    case 'insights': return r[1] ? ({ competency: pgCompMap, skills: pgSkillMap, talent: pgTalent, engagement: pgEngagement, calibration: pgCalibration, report: pgReport }[r[1]] || pgCompMap)() : pgHub('insights');
+    case 'leadership': return r[1] ? pgLeadership(r[1]) : pgHub('leadership');
+    case 'feedback': return !CENTRAL ? pgFeedback('team') : r[1] ? pgFeedback(r[1]) : pgHub('feedback');
     case 'config':
+      if (!r[1]) return pgHub('config');
       if (r[1] === 'roles') return r[2] ? pgRole(r[2]) : pgRoles();
       if (r[1] === 'skills') return pgSkillsCatalogue();
       if (r[1] === 'guidelines') return pgGuidelines();

@@ -5,11 +5,12 @@
 'use strict';
 
 function pgLeadership(tab) {
-  crumbs([['My leadership'], [{ scorecard: 'Scorecard', self: 'Self-assessment', upward: 'Upward feedback' }[tab] || 'Scorecard']]);
+  const T = { scorecard: ['Habits scorecard', 'Your management habits, calculated from your own records.'], self: ['Self-assessment', 'Rate yourself on 12 manager competencies, with evidence.'],
+    upward: ['Upward feedback', 'An anonymous ratings questionnaire for your team.'] };
+  if (!T[tab]) tab = 'scorecard';
+  crumbs([['My leadership'], [T[tab][0]]]);
   const ck = V.leadCycle || cycleOf().key;
-  const head = pageHead('My leadership', 'How you’re doing as a manager — measured from your own records, your reflection and your team’s anonymous feedback.',
-    `<select class="input" style="width:auto" onchange="V.leadCycle=this.value;render()">${opts(cycleOpts(), ck)}</select>`) +
-    tabsNav([['scorecard', 'Habits scorecard'], ['self', 'Self-assessment'], ['upward', 'Upward feedback']], tab, k => `#/leadership/${k}`);
+  const head = pageHead(T[tab][0], T[tab][1], `<select class="input" style="width:auto" onchange="V.leadCycle=this.value;render()">${opts(cycleOpts(), ck)}</select>`);
   if (tab === 'self') return head + leadSelf(ck);
   if (tab === 'upward') return head + leadUpward(ck);
   return head + leadScore(ck);

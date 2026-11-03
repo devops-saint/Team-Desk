@@ -4,8 +4,9 @@
 'use strict';
 
 function applyTheme() {
-  const t = S?.settings?.theme;
-  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  /* light unless the manager chose dark, or to follow the computer's setting */
+  const t = S?.settings?.theme || 'light';
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
 }
 async function startApp() {
   await Store.load();

@@ -82,7 +82,7 @@ const STAY_QUESTIONS = [
 function defaultOrg() {
   return {
     version: 3,
-    settings: { managerName: '', cycleStartMonth: 4, theme: '', distribution: { ...DEFAULT_DISTRIBUTION }, upwardMin: 3, aiAuto: true },
+    settings: { managerName: '', cycleStartMonth: 4, theme: 'light', distribution: { ...DEFAULT_DISTRIBUTION }, upwardMin: 3, aiAuto: true },
     qbank: { topics: {}, hidden: {}, custom: [] },
     skills: DEFAULT_SKILLS.map(([name, cat]) => ({ id: uid(), name, cat })),
     roles: [], guidelines: [],

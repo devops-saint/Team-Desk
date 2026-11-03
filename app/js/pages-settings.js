@@ -17,7 +17,7 @@ function pgSettings(tab) {
   return head + card('General', `<form class="fgrid" onchange="saveSettings(this)">
     ${fld(CENTRAL ? 'Name shown in Team Desk' : 'Your name', 'managerName', s.managerName, { hint: 'Used for greetings, initials on competency ratings and the upward-feedback form.' })}
     ${sel('Review year starts in', 'cycleStartMonth', MONTHS.map((m, i) => [i + 1, m]), s.cycleStartMonth, { hint: `Current cycle: ${esc(cycleOf().label)}${cfgOk ? '' : ' · set by your administrators'}`, attrs: cfgOk ? '' : 'disabled' })}
-    ${sel('Appearance', 'theme', [['', 'Match my system'], ['light', 'Light'], ['dark', 'Dark']], s.theme)}
+    ${sel('Appearance', 'theme', [['light', 'Light'], ['dark', 'Dark'], ['auto', 'Match my computer']], s.theme || 'light')}
     ${sel('Minimum responses before upward feedback is shown', 'upwardMin', [3, 4, 5, 6, 8, 10].map(n => [n, n]), s.upwardMin || 3, { hint: 'Higher numbers protect anonymity better.' })}</form>`, { sub: 'Changes save automatically' });
 }
 function saveSettings(form) { const d = formObj(form); d.cycleStartMonth = +d.cycleStartMonth; if (!canEditConfig()) delete d.cycleStartMonth; d.upwardMin = +d.upwardMin; Object.assign(S.settings, d); applyTheme(); save(); render(); }

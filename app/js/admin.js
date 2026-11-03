@@ -21,7 +21,7 @@ function pgAdmin(tab, sub) {
   const labels = { users: 'Users & access', directory: 'Microsoft directory', ownership: 'Reportee ownership', audit: 'Audit log', server: 'Server settings' };
   if (!labels[tab]) tab = 'users';
   crumbs([['Administration'], [labels[tab]]]);
-  const head = pageHead('Administration', 'Accounts, groups and organisation-wide settings for this Team Desk server.') + tabsNav(Object.entries(labels), tab, k => `#/admin/${k}`);
+  const head = pageHead(esc(labels[tab]), '');
   if (tab === 'directory') { setTimeout(() => loadDirectory(), 0); return head + `<div id="adm-body">${loadingCard()}</div>`; }
   if (tab === 'ownership') { setTimeout(loadOwnership, 0); return head + `<div id="adm-body">${loadingCard()}</div>`; }
   if (tab === 'audit') { setTimeout(() => loadAudit(V.auditMonth), 0); return head + `<div id="adm-body">${loadingCard()}</div>`; }
