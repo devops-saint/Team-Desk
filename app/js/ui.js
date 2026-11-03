@@ -327,6 +327,8 @@ function openModal({ title, sub = '', body, onSave, saveText = 'Save', size = ''
     <div class="modal-head"><div><h3>${esc(title)}</h3>${sub ? `<p>${sub}</p>` : ''}</div><button class="btn ghost icon sm" type="button" onclick="closeModal()" aria-label="Close">${ic('x')}</button></div>
     <form class="modal-body" id="mform" autocomplete="off" onsubmit="event.preventDefault();$('#msave')?.click()">${body}</form>
     <div class="modal-foot">${footLeft ? `<div class="left">${footLeft}</div>` : ''}<button class="btn" type="button" onclick="closeModal()">${esc(cancelText)}</button>${hideSave ? '' : `<button class="btn ${danger ? 'danger solid' : 'primary'}" type="button" id="msave">${esc(saveText)}</button>`}</div></div></div>`;
+  /* tab bars sit outside the scrolling area, so they never scroll or shrink out of view */
+  const tabBar = root.querySelector('#mform > .mtabs-bar'); if (tabBar) root.querySelector('#mform').before(tabBar);
   modalState = { onClose };
   if (onSave) $('#msave').onclick = async () => {
     const b = $('#msave'); b.disabled = true;
@@ -356,7 +358,7 @@ function mtabs(items) {
     ${items.map(([, h], i) => `<div class="mtab-pane ${i ? '' : 'on'}" data-i="${i}">${h}</div>`).join('')}`;
 }
 function mtab(btn, i) {
-  const f = btn.closest('form');
+  const f = btn.closest('.modal') || btn.closest('form');
   $$('.mtabs-bar button', f).forEach((b, k) => b.classList.toggle('on', k === i));
   $$('.mtab-pane', f).forEach(p => p.classList.toggle('on', +p.dataset.i === i));
   DP.close();

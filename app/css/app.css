@@ -205,8 +205,11 @@ a.tile:hover{border-color:var(--accent)}
 .modal-body{padding:18px 20px;overflow:auto;display:flex;flex-direction:column;gap:14px}
 .modal-foot{padding:12px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;align-items:center}
 .modal-foot .left{margin-right:auto}
-.mtabs-bar{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:-18px -20px 0;padding:0 14px;overflow-x:auto;background:var(--panel-2)}
-.mtabs-bar button{border:0;background:none;padding:10px 12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-weight:520;white-space:nowrap}
+.mtabs-bar{display:flex;flex:none;gap:2px;border-bottom:1px solid var(--line);margin:-18px -20px 0;padding:0 14px;overflow-x:auto;background:var(--panel-2);position:sticky;top:-18px;z-index:3}
+.modal > .mtabs-bar{margin:0;position:static;min-height:44px}
+.modal-body{flex:1 1 auto;min-height:0}
+.mtab-pane{flex:none}
+.mtabs-bar button{flex:none;border:0;background:none;padding:10px 12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-weight:520;white-space:nowrap}
 .mtabs-bar button.on{color:var(--accent);border-color:var(--accent)}
 .mtab-pane{display:none;flex-direction:column;gap:14px;padding-top:4px}
 .mtab-pane.on{display:flex}
